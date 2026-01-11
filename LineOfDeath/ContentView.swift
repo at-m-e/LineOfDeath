@@ -29,6 +29,16 @@ enum AppState {
     case thankYou
 }
 
+/// タスクの状態を管理するenum
+enum TaskStatus {
+    /// 締め切り前（カウントダウン中）
+    case active
+    /// 締め切り超過（未提出、late submission待ち）
+    case overdue
+    /// 遅れて提出済み（完了）
+    case lateSubmitted
+}
+
 /// メインのContentView
 /// アプリ全体の状態管理と画面遷移を担当
 struct ContentView: View {
@@ -36,24 +46,24 @@ struct ContentView: View {
     @State private var appState: AppState = .home
     /// タスク名
     @State private var taskName: String = ""
-    /// デッドラインの日時
+    /// Oracleモード用のタスク詳細
+    @State private var taskDetail: String = ""
+    /// デッドラインの日時（日付・時間・分を含む）
     @State private var deadline: Date = Date()
     /// 現在の時刻（タイマー表示用）
     @State private var currentTime: Date = Date()
+    /// タスクの状態
+    @State private var taskStatus: TaskStatus = .active
+    /// 遅延時間（秒）
+    @State private var lateDuration: TimeInterval = 0
     /// メインタイマー（1秒ごとに更新）
     @State private var timer: Timer?
-    /// カウントダウンの秒数（3...2...1...）
-    @State private var countdownSeconds: Int = 3
-    /// カウントダウン表示フラグ
-    @State private var showCountdown: Bool = false
     /// キャンセル理由
     @State private var cancelReason: String = ""
     /// Define Your Fateセットアップシート表示フラグ
     @State private var showSetupSheet: Bool = false
     /// AI Scholastic Oracleセットアップシート表示フラグ
     @State private var showOracleSheet: Bool = false
-    /// カウントダウンタイマー
-    @State private var countdownTimer: Timer?
     
     /// プライマリ背景色（Deep Navy）
     let primaryBackground = Color(hex: "#001A33")
@@ -86,49 +96,6 @@ struct ContentView: View {
                 )
                 .environment(\.colorScheme, .dark)
                 
-            case .oracleSetup:
-                HomeView(
-                    onDefineYourFate: {
-                        showSetupSheet = true
-                    },
-                    onOracle: {
-                        showOracleSheet = true
-                    }
-                )
-                .sheet(isPresented: $showOracleSheet) {
-                    OracleSetupView(
-                        taskName: $taskName,
-                        deadline: $deadline,
-                        onEstablishDefense: {
-                            showOracleSheet = false
-                            appState = .oracleTimer
-                            startTimer()
-                        },
-                        onDismiss: {
-                            showOracleSheet = false
-                            appState = .home
-                        }
-                    )
-                    .presentationDetents([.medium])
-                    .presentationDragIndicator(.visible)
-                    .interactiveDismissDisabled()
-                }
-                
-            case .oracleTimer:
-                ActiveTimerView(
-                    taskName: taskName,
-                    deadline: deadline,
-                    currentTime: currentTime,
-                    onSubmitAssignment: {
-                        stopTimer()
-                        appState = .success
-                    },
-                    onCancel: {
-                        stopTimer()
-                        appState = .cancelReason
-                    }
-                )
-                
             case .setup:
                 HomeView(
                     onDefineYourFate: {
@@ -145,6 +112,7 @@ struct ContentView: View {
                         onEstablishDefense: {
                             showSetupSheet = false
                             appState = .timer
+                            taskStatus = .active
                             startTimer()
                         },
                         onDismiss: {
@@ -152,7 +120,7 @@ struct ContentView: View {
                             appState = .home
                         }
                     )
-                    .presentationDetents([.medium])
+                    .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
                     .interactiveDismissDisabled()
                 }
@@ -162,6 +130,8 @@ struct ContentView: View {
                     taskName: taskName,
                     deadline: deadline,
                     currentTime: currentTime,
+                    taskStatus: $taskStatus,
+                    lateDuration: $lateDuration,
                     onSubmitAssignment: {
                         stopTimer()
                         appState = .success
@@ -169,6 +139,61 @@ struct ContentView: View {
                     onCancel: {
                         stopTimer()
                         appState = .cancelReason
+                    },
+                    onLateSubmission: {
+                        lateDuration = currentTime.timeIntervalSince(deadline)
+                        taskStatus = .lateSubmitted
+                    }
+                )
+                
+            case .oracleSetup:
+                HomeView(
+                    onDefineYourFate: {
+                        showSetupSheet = true
+                    },
+                    onOracle: {
+                        showOracleSheet = true
+                    }
+                )
+                .sheet(isPresented: $showOracleSheet) {
+                    OracleSetupView(
+                        taskName: $taskName,
+                        taskDetail: $taskDetail,
+                        deadline: $deadline,
+                        onEstablishDefense: {
+                            showOracleSheet = false
+                            appState = .oracleTimer
+                            taskStatus = .active
+                            startTimer()
+                        },
+                        onDismiss: {
+                            showOracleSheet = false
+                            appState = .home
+                        }
+                    )
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+                    .interactiveDismissDisabled()
+                }
+                
+            case .oracleTimer:
+                ActiveTimerView(
+                    taskName: taskName,
+                    deadline: deadline,
+                    currentTime: currentTime,
+                    taskStatus: $taskStatus,
+                    lateDuration: $lateDuration,
+                    onSubmitAssignment: {
+                        stopTimer()
+                        appState = .success
+                    },
+                    onCancel: {
+                        stopTimer()
+                        appState = .cancelReason
+                    },
+                    onLateSubmission: {
+                        lateDuration = currentTime.timeIntervalSince(deadline)
+                        taskStatus = .lateSubmitted
                     }
                 )
                 
@@ -180,15 +205,11 @@ struct ContentView: View {
                 )
                 
             case .failure:
-                if showCountdown {
-                    CountdownView(seconds: countdownSeconds)
-                } else {
-                    FailureView(
-                        onReturnHome: {
-                            resetApp()
-                        }
-                    )
-                }
+                FailureView(
+                    onReturnHome: {
+                        resetApp()
+                    }
+                )
                 
             case .cancelReason:
                 CancelReasonView(
@@ -199,11 +220,7 @@ struct ContentView: View {
                 )
                 
             case .thankYou:
-                ThankYouView(
-                    onQuit: {
-                        resetApp()
-                    }
-                )
+                ThankYouView()
             }
         }
         .preferredColorScheme(.dark)
@@ -214,28 +231,11 @@ struct ContentView: View {
     private func startTimer() {
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             DispatchQueue.main.async {
-                // 現在時刻を更新
                 currentTime = Date()
                 
                 // デッドラインを超過したかチェック
-                let calendar = Calendar.current
-                let currentComponents = calendar.dateComponents([.hour, .minute, .second], from: currentTime)
-                let deadlineComponents = calendar.dateComponents([.hour, .minute], from: deadline)
-                
-                if let currentHour = currentComponents.hour,
-                   let currentMinute = currentComponents.minute,
-                   let deadlineHour = deadlineComponents.hour,
-                   let deadlineMinute = deadlineComponents.minute {
-                    
-                    // 時刻を分単位に変換して比較
-                    let currentTotalMinutes = currentHour * 60 + currentMinute
-                    let deadlineTotalMinutes = deadlineHour * 60 + deadlineMinute
-                    
-                    // デッドラインを超過した場合、失敗状態に移行
-                    if currentTotalMinutes >= deadlineTotalMinutes {
-                        stopTimer()
-                        triggerFailure()
-                    }
+                if currentTime >= deadline && taskStatus == .active {
+                    taskStatus = .overdue
                 }
             }
         }
@@ -247,46 +247,18 @@ struct ContentView: View {
         timer = nil
     }
     
-    /// 失敗状態をトリガーする
-    /// カウントダウンを開始して失敗画面に遷移
-    private func triggerFailure() {
-        appState = .failure
-        showCountdown = true
-        countdownSeconds = 3
-        startCountdown()
-    }
-    
-    /// カウントダウン（3...2...1...）を開始する
-    private func startCountdown() {
-        countdownTimer?.invalidate()
-        countdownSeconds = 3
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
-            DispatchQueue.main.async {
-                countdownSeconds -= 1
-                // カウントダウンが0になったらタイマーを停止
-                if countdownSeconds <= 0 {
-                    timer.invalidate()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        showCountdown = false
-                    }
-                }
-            }
-        }
-    }
-    
     /// アプリの状態をリセットする
     private func resetApp() {
         taskName = ""
+        taskDetail = ""
         deadline = Date()
         currentTime = Date()
-        countdownSeconds = 3
-        showCountdown = false
+        taskStatus = .active
+        lateDuration = 0
         cancelReason = ""
         showSetupSheet = false
         showOracleSheet = false
         stopTimer()
-        countdownTimer?.invalidate()
-        countdownTimer = nil
         appState = .home
     }
 }
@@ -355,64 +327,158 @@ struct SetupView: View {
     let onDismiss: () -> Void
     
     var body: some View {
-        VStack(spacing: 30) {
-            // タイトル
-            Text("Define Your Fate")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(.white)
-                .padding(.top, 20)
-            
-            // タスク名入力フィールド
-            VStack(alignment: .leading, spacing: 15) {
-                Text("Task Name")
-                    .font(.system(size: 16, weight: .semibold))
+        GeometryReader { geometry in
+            VStack(spacing: 30) {
+                // タイトル
+                Text("Define Your Fate")
+                    .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.white)
+                    .padding(.top, 20)
                 
-                TextField("Enter task name", text: $taskName)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 18))
-                    .foregroundColor(.white)
-                    .padding(15)
-                    .background(Color(hex: "#002D54"))
-                    .cornerRadius(8)
-            }
-            
-            // デッドライン時間選択
-            VStack(alignment: .leading, spacing: 15) {
-                Text("Deadline Time")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
-                
-                DatePicker("", selection: $deadline, displayedComponents: .hourAndMinute)
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                    .tint(Color(hex: "#E00122"))
-                    .accentColor(Color(hex: "#E00122"))
-            }
-            .frame(height: 200)
-            
-            Spacer()
-            
-            // タイマー開始ボタン
-            Button(action: {
-                if !taskName.isEmpty {
-                    onEstablishDefense()
+                // タスク名入力フィールド
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Task Name")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    TextField("Enter task name", text: $taskName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 18))
+                        .foregroundColor(.white)
+                        .padding(15)
+                        .background(Color(hex: "#002D54"))
+                        .cornerRadius(8)
                 }
-            }) {
-                Text("Establish the Defense")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 55)
-                    .background(taskName.isEmpty ? Color.gray : Color(hex: "#E00122"))
-                    .cornerRadius(12)
+                
+                // デッドライン日時選択（画面の3/4の高さ）
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Deadline")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    DatePicker("", selection: $deadline, displayedComponents: [.date, .hourAndMinute])
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .tint(Color(hex: "#E00122"))
+                        .accentColor(Color(hex: "#E00122"))
+                        .frame(height: geometry.size.height * 0.75 - 200)
+                }
+                
+                Spacer()
+                
+                // タイマー開始ボタン
+                Button(action: {
+                    if !taskName.isEmpty {
+                        onEstablishDefense()
+                    }
+                }) {
+                    Text("Establish the Defense")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 55)
+                        .background(taskName.isEmpty ? Color.gray : Color(hex: "#E00122"))
+                        .cornerRadius(12)
+                }
+                .disabled(taskName.isEmpty)
+                .padding(.bottom, 30)
             }
-            .disabled(taskName.isEmpty)
-            .padding(.bottom, 30)
+            .padding(.horizontal, 30)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(hex: "#001A33"))
         }
-        .padding(.horizontal, 30)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(hex: "#001A33"))
+    }
+}
+
+/// AI Scholastic Oracle機能のセットアップ画面
+struct OracleSetupView: View {
+    /// タスク名のバインディング
+    @Binding var taskName: String
+    /// タスク詳細のバインディング
+    @Binding var taskDetail: String
+    /// デッドライン時間のバインディング
+    @Binding var deadline: Date
+    /// タイマー開始時のコールバック
+    let onEstablishDefense: () -> Void
+    /// 画面を閉じる時のコールバック
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 30) {
+                // タイトル
+                Text("AI Scholastic Oracle")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.top, 20)
+                
+                // タスク名入力フィールド
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Task Name")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    TextField("Task Name, Enter", text: $taskName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 18))
+                        .foregroundColor(.white)
+                        .padding(15)
+                        .background(Color(hex: "#002D54"))
+                        .cornerRadius(8)
+                }
+                
+                // タスク詳細入力フィールド（Oracleモード専用）
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Task Detail")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    TextField("Enter Task Detail", text: $taskDetail)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 18))
+                        .foregroundColor(.white)
+                        .padding(15)
+                        .background(Color(hex: "#002D54"))
+                        .cornerRadius(8)
+                }
+                
+                // デッドライン日時選択（画面の3/4の高さ）
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Deadline")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    DatePicker("", selection: $deadline, displayedComponents: [.date, .hourAndMinute])
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .tint(Color(hex: "#E00122"))
+                        .accentColor(Color(hex: "#E00122"))
+                        .frame(height: geometry.size.height * 0.75 - 280)
+                }
+                
+                Spacer()
+                
+                // タイマー開始ボタン
+                Button(action: {
+                    if !taskName.isEmpty {
+                        onEstablishDefense()
+                    }
+                }) {
+                    Text("Establish the Defense")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 55)
+                        .background(taskName.isEmpty ? Color.gray : Color(hex: "#E00122"))
+                        .cornerRadius(12)
+                }
+                .disabled(taskName.isEmpty)
+                .padding(.bottom, 30)
+            }
+            .padding(.horizontal, 30)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(hex: "#001A33"))
+        }
     }
 }
 
@@ -425,10 +491,16 @@ struct ActiveTimerView: View {
     let deadline: Date
     /// 現在時刻
     let currentTime: Date
+    /// タスクの状態（バインディング）
+    @Binding var taskStatus: TaskStatus
+    /// 遅延時間（秒）（バインディング）
+    @Binding var lateDuration: TimeInterval
     /// 課題提出時のコールバック
     let onSubmitAssignment: () -> Void
     /// キャンセル時のコールバック
     let onCancel: () -> Void
+    /// 遅延提出時のコールバック
+    let onLateSubmission: () -> Void
     
     /// 現在時刻のフォーマッター（HH:mm:ss形式）
     let dateFormatter: DateFormatter = {
@@ -437,23 +509,51 @@ struct ActiveTimerView: View {
         return formatter
     }()
     
-    /// デッドラインのフォーマッター（HH:mm形式）
+    /// デッドラインのフォーマッター（yyyy/MM/dd HH:mm形式）
     let deadlineFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
+        formatter.dateFormat = "yyyy/MM/dd HH:mm"
         return formatter
     }()
     
+    /// 残り時間または経過時間を計算
+    var timeDifference: TimeInterval {
+        switch taskStatus {
+        case .active:
+            // 締め切り前：残り時間
+            return deadline.timeIntervalSince(currentTime)
+        case .overdue:
+            // 締め切り超過：経過時間
+            return currentTime.timeIntervalSince(deadline)
+        case .lateSubmitted:
+            // 提出済み：確定した遅延時間
+            return lateDuration
+        }
+    }
+    
+    /// 時間差を文字列にフォーマット
+    var timeDifferenceString: String {
+        let totalSeconds = abs(timeDifference)
+        let hours = Int(totalSeconds) / 3600
+        let minutes = (Int(totalSeconds) % 3600) / 60
+        let seconds = Int(totalSeconds) % 60
+        
+        if taskStatus == .lateSubmitted {
+            return String(format: "%d min %d sec late", minutes, seconds)
+        }
+        
+        if hours > 0 {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            return String(format: "%02d:%02d", minutes, seconds)
+        }
+    }
+    
     var body: some View {
         ZStack {
-            // 背景色と赤いボーダー
+            // 背景色（赤いボーダーを削除）
             Color(hex: "#001A33")
                 .ignoresSafeArea()
-                .overlay(
-                    RoundedRectangle(cornerRadius: 0)
-                        .stroke(Color(hex: "#E00122"), lineWidth: 2)
-                        .ignoresSafeArea()
-                )
             
             VStack(spacing: 30) {
                 // キャンセルボタン
@@ -502,30 +602,59 @@ struct ActiveTimerView: View {
                                 .foregroundColor(.gray)
                             
                             Text(deadlineFormatter.string(from: deadline))
-                                .font(.system(size: 36, weight: .bold, design: .monospaced))
+                                .font(.system(size: 24, weight: .bold, design: .monospaced))
                                 .foregroundColor(Color(hex: "#E00122"))
+                        }
+                        
+                        // 残り時間/経過時間/遅延時間
+                        VStack(spacing: 8) {
+                            Text(taskStatus == .active ? "Remaining" : (taskStatus == .overdue ? "Overdue" : "Late Submitted!"))
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(.gray)
+                            
+                            Text(timeDifferenceString)
+                                .font(.system(size: 48, weight: .bold, design: .monospaced))
+                                .foregroundColor(taskStatus == .active ? .white : Color(hex: "#E00122"))
                         }
                     }
                     
                     // 警告テキスト
-                    Text("GPA Erosion")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(Color(hex: "#E00122"))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 40)
+                    if taskStatus == .active {
+                        Text("GPA Erosion")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(Color(hex: "#E00122"))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
                 }
                 
                 Spacer()
                 
-                // 課題提出ボタン
-                Button(action: onSubmitAssignment) {
-                    Text("Submit Assignment")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 60)
-                        .background(Color(hex: "#E00122"))
-                        .cornerRadius(12)
+                // ボタン群
+                VStack(spacing: 15) {
+                    // 課題提出ボタンまたは遅延提出ボタン
+                    if taskStatus == .overdue {
+                        Button(action: onLateSubmission) {
+                            Text("Late Submission")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 60)
+                                .background(Color(hex: "#E00122"))
+                                .cornerRadius(12)
+                        }
+                    } else {
+                        Button(action: onSubmitAssignment) {
+                            Text("Submit Assignment")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 60)
+                                .background(taskStatus == .lateSubmitted ? Color.gray : Color(hex: "#E00122"))
+                                .cornerRadius(12)
+                        }
+                        .disabled(taskStatus == .lateSubmitted)
+                    }
                 }
                 .padding(.horizontal, 30)
                 .padding(.bottom, 40)
@@ -583,35 +712,6 @@ struct SuccessView: View {
     }
 }
 
-/// カウントダウン表示画面（3...2...1...）
-struct CountdownView: View {
-    /// カウントダウンの秒数
-    let seconds: Int
-    
-    var body: some View {
-        ZStack {
-            Color(hex: "#001A33")
-                .ignoresSafeArea()
-            
-            VStack(spacing: 20) {
-                // カウントダウンの数字を表示
-                if seconds > 0 {
-                    Text("\(seconds)")
-                        .font(.system(size: 120, weight: .bold, design: .monospaced))
-                        .foregroundColor(Color(hex: "#E00122"))
-                        .transition(.scale.combined(with: .opacity))
-                } else {
-                    Text("0")
-                        .font(.system(size: 120, weight: .bold, design: .monospaced))
-                        .foregroundColor(Color(hex: "#E00122"))
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .animation(.easeInOut, value: seconds)
-        }
-    }
-}
-
 /// 失敗画面（Social Liquidation画面）
 struct FailureView: View {
     /// ホームに戻る時のコールバック
@@ -645,30 +745,15 @@ struct FailureView: View {
                 
                 Spacer()
                 
-                // ボタン群
-                VStack(spacing: 15) {
-                    // 無効化された遅延提出ボタン
-                    Button(action: {}) {
-                        Text("Late-submitted!")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.gray)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(Color.gray.opacity(0.3))
-                            .cornerRadius(12)
-                    }
-                    .disabled(true)
-                    
-                    // ホームに戻るボタン
-                    Button(action: onReturnHome) {
-                        Text("Return Home")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(Color(hex: "#002D54"))
-                            .cornerRadius(12)
-                    }
+                // ホームに戻るボタン
+                Button(action: onReturnHome) {
+                    Text("Return Home")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 60)
+                        .background(Color(hex: "#002D54"))
+                        .cornerRadius(12)
                 }
                 .padding(.horizontal, 40)
                 .padding(.bottom, 40)
@@ -734,11 +819,9 @@ struct CancelReasonView: View {
     }
 }
 
-/// サンクユー画面（Thank you. Quit.画面）
+/// サンクユー画面（Thank you.画面）
+/// Quit.ボタンは削除済み
 struct ThankYouView: View {
-    /// ホームに戻る時のコールバック
-    let onQuit: () -> Void
-    
     var body: some View {
         ZStack {
             Color(hex: "#001A33")
@@ -758,19 +841,6 @@ struct ThankYouView: View {
                     .foregroundColor(.gray)
                 
                 Spacer()
-                
-                // ホームに戻るボタン
-                Button(action: onQuit) {
-                    Text("Return Home")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 60)
-                        .background(Color(hex: "#002D54"))
-                        .cornerRadius(12)
-                }
-                .padding(.horizontal, 40)
-                .padding(.bottom, 40)
             }
         }
     }
