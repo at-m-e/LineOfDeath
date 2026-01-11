@@ -14,9 +14,22 @@
 		8A469FEB2F13185000BD11E5 /* LineOfDeath.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LineOfDeath.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8A9D58F52F137D6800AD90C4 /* Exceptions for "LineOfDeath" folder in "LineOfDeath" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 8A469FEA2F13185000BD11E5 /* LineOfDeath */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8A469FED2F13185000BD11E5 /* LineOfDeath */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8A9D58F52F137D6800AD90C4 /* Exceptions for "LineOfDeath" folder in "LineOfDeath" target */,
+			);
 			path = LineOfDeath;
 			sourceTree = "<group>";
 		};
@@ -265,6 +278,7 @@
 				DEVELOPMENT_TEAM = K4HS353CU2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LineOfDeath/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "To shame.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "To save.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To shame.";
@@ -300,6 +314,7 @@
 				DEVELOPMENT_TEAM = K4HS353CU2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = LineOfDeath/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "To shame.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "To save.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To shame.";

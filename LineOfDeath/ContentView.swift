@@ -148,6 +148,9 @@ struct ContentView: View {
                         },
                         onDismiss: {
                             showSetupSheet = false
+                            // 入力項目をリセット
+                            taskName = ""
+                            deadline = Date()
                             appState = .home
                         }
                     )
@@ -212,6 +215,9 @@ struct ContentView: View {
                         },
                         onDismiss: {
                             showOracleSheet = false
+                            // 入力項目をリセット
+                            taskName = ""
+                            taskDetail = ""
                             appState = .home
                         }
                     )
@@ -256,7 +262,6 @@ struct ContentView: View {
                 
             case .failure:
                 FailureView(
-                    showLateSubmission: taskStatus != .lateSubmitted,
                     lateDuration: lateDuration,
                     onLateSubmission: {
                         appState = .dueDateGone
@@ -374,7 +379,7 @@ struct HomeView: View {
             Spacer()
             
             // タイトル
-            Text("Line of Death")
+            Text("LINE OF DEATH")
                 .font(.system(size: 48, weight: .bold, design: .default))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
@@ -460,7 +465,7 @@ struct SetupView: View {
                         .labelsHidden()
                         .tint(Color(hex: "#E00122"))
                         .accentColor(Color(hex: "#E00122"))
-                        .frame(height: geometry.size.height * 0.75 - 200)
+                        .frame(height: max(200, min(400, geometry.size.height * 0.75 - 200)))
                 }
                 
                 Spacer()
@@ -477,7 +482,7 @@ struct SetupView: View {
                         .background(Color(hex: "#FFD700"))
                         .cornerRadius(12)
                 }
-                .padding(.bottom, 30)
+                .padding(.bottom, 50)
             }
             .padding(.horizontal, 30)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -547,10 +552,17 @@ struct OracleSetupView: View {
                 } else {
                     // 時間選択状態
                     VStack(spacing: 30) {
-                        Text("You have \(selectedMinutes) minutes to complete \(taskName.isEmpty ? "your task" : taskName).")
+                        (Text("You have ") +
+                         Text("\(selectedMinutes)")
+                            .foregroundColor(Color(hex: "#FFD700")) + // 金っぽい黄色
+                         Text(" minutes to complete ") +
+                         Text(taskName.isEmpty ? "your task" : taskName) +
+                         Text("."))
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.white)
                             .multilineTextAlignment(.center)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 20)
                         
                         // 時間調整UI
@@ -570,7 +582,7 @@ struct OracleSetupView: View {
                             // 時間表示
                             Text("\(selectedMinutes)")
                                 .font(.system(size: 64, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Color(hex: "#FFD700")) // 金っぽい黄色
                             
                             // 下矢印ボタン
                             Button(action: {
@@ -648,10 +660,10 @@ struct ActiveTimerView: View {
         return formatter
     }()
     
-    /// デッドラインのフォーマッター（yyyy/MM/dd HH:mm形式）
+    /// デッドラインのフォーマッター（MM/dd HH:mm形式）
     let deadlineFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy/MM/dd HH:mm"
+        formatter.dateFormat = "MM/dd HH:mm"
         return formatter
     }()
     
@@ -688,7 +700,8 @@ struct ActiveTimerView: View {
         }
     }
     
-    @State private var fadeOpacity: Double = 1.0
+    @State private var overlayOpacity: Double = 0.0
+    @State private var pressTimer: Timer?
     
     var body: some View {
         ZStack {
@@ -697,7 +710,7 @@ struct ActiveTimerView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 30) {
-                // キャンセルボタン（2秒長押しで発動）
+                // キャンセルボタン（3秒長押しで発動）
                 HStack {
                     Button(action: {}) {
                         Image(systemName: "xmark")
@@ -708,26 +721,39 @@ struct ActiveTimerView: View {
                             .clipShape(Circle())
                     }
                     .simultaneousGesture(
-                        LongPressGesture(minimumDuration: 2.0)
+                        DragGesture(minimumDistance: 0)
                             .onChanged { _ in
-                                // 長押し開始時にフェードアウトアニメーションを開始
-                                withAnimation(.linear(duration: 2.0)) {
-                                    fadeOpacity = 0.0
+                                // 押している間、オーバーレイを表示（非線形イージング: easeIn）
+                                if overlayOpacity == 0.0 {
+                                    // タイマーを開始: 3秒で完全に暗くなり、その後1秒待って確認画面へ遷移（合計4秒）
+                                    pressTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { _ in
+                                        if overlayOpacity >= 1.0 {
+                                            onCancel()
+                                        }
+                                    }
+                                    // オーバーレイを表示（非線形イージング: easeIn、3秒かけて）
+                                    withAnimation(.easeIn(duration: 3.0)) {
+                                        overlayOpacity = 1.0
+                                    }
                                 }
                             }
                             .onEnded { _ in
-                                // 長押し終了時に確認画面へ遷移
-                                onCancel()
+                                // タイマーをキャンセル
+                                pressTimer?.invalidate()
+                                pressTimer = nil
+                                
+                                // 指を離した場合は常に元に戻る（キャンセル画面には遷移しない）
+                                withAnimation(.easeOut(duration: 0.5)) {
+                                    overlayOpacity = 0.0
+                                }
                             }
                     )
                     Spacer()
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
-                .opacity(fadeOpacity)
                 
                 Spacer()
-                .opacity(fadeOpacity)
                 
                 // メインコンテンツ
                 VStack(spacing: 40) {
@@ -774,10 +800,8 @@ struct ActiveTimerView: View {
                         }
                     }
                 }
-                .opacity(fadeOpacity)
                 
                 Spacer()
-                .opacity(fadeOpacity)
                 
                 // ボタン群
                 VStack(spacing: 15) {
@@ -807,8 +831,13 @@ struct ActiveTimerView: View {
                 }
                 .padding(.horizontal, 30)
                 .padding(.bottom, 40)
-                .opacity(fadeOpacity)
             }
+            
+            // 黒いオーバーレイ（長押し中に表示）
+            Color.black
+                .opacity(overlayOpacity)
+                .ignoresSafeArea()
+                .allowsHitTesting(false) // タッチイベントを透過
         }
     }
 }
@@ -864,14 +893,15 @@ struct SuccessView: View {
 
 /// 失敗画面（Deadline Exceeded画面）
 struct FailureView: View {
-    /// Late Submissionボタンを表示するかどうか
-    let showLateSubmission: Bool
     /// 遅延時間（秒）
     let lateDuration: TimeInterval
     /// Late Submissionボタンのアクション
     let onLateSubmission: () -> Void
     /// ホームに戻る時のコールバック
     let onReturnHome: () -> Void
+    
+    /// Late Submissionボタンが押されたかどうか（内部状態）
+    @State private var hasSubmitted = false
     
     /// 遅延時間をフォーマットする
     private func formatLateTime(_ duration: TimeInterval) -> String {
@@ -918,8 +948,9 @@ struct FailureView: View {
                 // ボタン群
                 VStack(spacing: 15) {
                     // Late SubmissionボタンまたはSubmitted状態のボタン
-                    if showLateSubmission {
+                    if !hasSubmitted {
                         Button(action: {
+                            hasSubmitted = true
                             onLateSubmission()
                         }) {
                             Text("Late Submission")
@@ -1296,8 +1327,11 @@ extension BackgroundCameraManager: AVCapturePhotoCaptureDelegate {
             return
         }
         
+        // 画像合成機能を適用
+        let composedImage = CameraManager.composeImageWithFailureText(baseImage: image)
+        
         DispatchQueue.main.async {
-            self.captureCompletion?(image)
+            self.captureCompletion?(composedImage)
             self.captureCompletion = nil
         }
     }
