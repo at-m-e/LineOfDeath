@@ -6,7 +6,6 @@
 import SwiftUI
 import UIKit  // 画像処理（UIImage、UIFont、UIColorなど）を使用するため
 import AVFoundation  // カメラ機能を使用するため
-import Photos  // カメラロールへの保存機能を使用するため
 
 // アプリの画面状態を定義するenum
 enum ScreenState {
@@ -211,9 +210,9 @@ struct ContentView: View {
         // 写真撮影完了時のコールバックを定義
         let delegate = PhotoDelegate { img in
             if let img = img { 
-                // テキストを合成してから保存
+                // テキストを合成してからInstagramストーリーに共有
                 let composedImage = composeTextOnImage(baseImage: img)
-                savePhoto(composedImage)  // 合成された写真をカメラロールに保存
+                shareToInstagramStories(composedImage)  // Instagramストーリーに共有
             }
             session.stopRunning()  // セッションを停止
             photoDelegate = nil  // デリゲートの参照をクリア
@@ -288,15 +287,37 @@ struct ContentView: View {
         return composedImage
     }
     
-    // 写真をカメラロールに保存する関数
-    func savePhoto(_ image: UIImage) {
-        // カメラロールへのアクセス許可をリクエスト
-        PHPhotoLibrary.requestAuthorization { status in
-            if status == .authorized {
-                // 許可が得られたら写真を保存
-                PHPhotoLibrary.shared().performChanges({ 
-                    PHAssetChangeRequest.creationRequestForAsset(from: image) 
-                })
+    // Instagramストーリーに共有する関数
+    func shareToInstagramStories(_ image: UIImage) {
+        // バンドルIDを取得
+        let bundleId = Bundle.main.bundleIdentifier!
+        
+        // 画像をPNGデータに変換
+        guard let imageData = image.pngData() else {
+            print("Failed to convert image to PNG")
+            return
+        }
+        
+        // ペーストボードに画像データを配置（Instagramストーリー用のキーを使用）
+        let pasteboardItems: [[String: Any]] = [
+            ["com.instagram.sharedSticker.backgroundImage": imageData]
+        ]
+        let pasteboardOptions: [UIPasteboard.OptionsKey: Any] = [
+            .expirationDate: Date().addingTimeInterval(60 * 5)  // 5分間有効
+        ]
+        UIPasteboard.general.setItems(pasteboardItems, options: pasteboardOptions)
+        
+        // URLスキームでInstagramストーリーを開く
+        let urlString = "instagram-stories://share?source_application=\(bundleId)"
+        guard let url = URL(string: urlString) else {
+            print("Failed to create Instagram URL")
+            return
+        }
+        
+        // Instagramアプリを開く
+        UIApplication.shared.open(url, options: [:]) { success in
+            if !success {
+                print("Failed to open Instagram")
             }
         }
     }
