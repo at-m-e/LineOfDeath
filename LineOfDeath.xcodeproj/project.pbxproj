@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		8A9D58F32F13794800AD90C4 /* GoogleGenerativeAI in Frameworks */ = {isa = PBXBuildFile; productRef = 8A9D58F22F13794800AD90C4 /* GoogleGenerativeAI */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		8A469FEB2F13185000BD11E5 /* LineOfDeath.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LineOfDeath.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8A9D58F32F13794800AD90C4 /* GoogleGenerativeAI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = LineOfDeath;
 			packageProductDependencies = (
+				8A9D58F22F13794800AD90C4 /* GoogleGenerativeAI */,
 			);
 			productName = LineOfDeath;
 			productReference = 8A469FEB2F13185000BD11E5 /* LineOfDeath.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = 8A469FE22F13185000BD11E5;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8A9D58F12F13794800AD90C4 /* XCRemoteSwiftPackageReference "generative-ai-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8A469FEC2F13185000BD11E5 /* Products */;
 			projectDirPath = "";
@@ -338,6 +347,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8A9D58F12F13794800AD90C4 /* XCRemoteSwiftPackageReference "generative-ai-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/generative-ai-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.5.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8A9D58F22F13794800AD90C4 /* GoogleGenerativeAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8A9D58F12F13794800AD90C4 /* XCRemoteSwiftPackageReference "generative-ai-swift" */;
+			productName = GoogleGenerativeAI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8A469FE32F13185000BD11E5 /* Project object */;
 }

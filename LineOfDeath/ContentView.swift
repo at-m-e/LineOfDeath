@@ -29,6 +29,8 @@ enum AppState {
     case failure
     /// キャンセル理由入力画面
     case cancelReason
+    /// キャンセル確認画面
+    case cancelConfirm
     /// サンクユー画面
     case thankYou
     /// Due date gone!表示中
@@ -149,7 +151,7 @@ struct ContentView: View {
                             appState = .home
                         }
                     )
-                    .presentationDetents([.large])
+                    .presentationDetents([.fraction(0.67)])
                     .presentationDragIndicator(.visible)
                 }
                 
@@ -171,9 +173,8 @@ struct ContentView: View {
                         }
                     },
                     onCancel: {
-                        stopTimer()
                         previousTimerState = .timer
-                        appState = .cancelReason
+                        appState = .cancelConfirm
                     },
                     onLateSubmission: {
                         lateDuration = currentTime.timeIntervalSince(deadline)
@@ -194,10 +195,10 @@ struct ContentView: View {
                     OracleSetupView(
                         taskName: $taskName,
                         taskDetail: $taskDetail,
-                        onEstablishDefense: {
+                        onEstablishDefense: { minutes in
                             showOracleSheet = false
-                            // 現在時刻から30分後に自動設定
-                            deadline = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
+                            // 選択された分数でデッドラインを設定
+                            deadline = Calendar.current.date(byAdding: .minute, value: minutes, to: Date()) ?? Date()
                             currentTime = Date()
                             // 開始時にすでに期限を過ぎていた場合はDue date gone!画面から始める
                             if currentTime >= deadline {
@@ -214,7 +215,7 @@ struct ContentView: View {
                             appState = .home
                         }
                     )
-                    .presentationDetents([.large])
+                    .presentationDetents([.fraction(0.67)])
                     .presentationDragIndicator(.visible)
                 }
                 
@@ -277,6 +278,18 @@ struct ContentView: View {
                     }
                 )
                 
+            case .cancelConfirm:
+                CancelConfirmView(
+                    onConfirm: {
+                        stopTimer()
+                        appState = .cancelReason
+                    },
+                    onDismiss: {
+                        appState = previousTimerState
+                        startTimer()
+                    }
+                )
+                
             case .thankYou:
                 ThankYouView(
                     onQuit: {
@@ -315,6 +328,9 @@ struct ContentView: View {
                 // デッドラインを超過したかチェック
                 if currentTime >= deadline && taskStatus == .active {
                     taskStatus = .overdue
+                    // 期限切れの瞬間にTime is Up画面へ遷移
+                    stopTimer()
+                    appState = .dueDateGone
                 }
             }
         }
@@ -424,7 +440,7 @@ struct SetupView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white)
                     
-                    TextField("Enter task name", text: $taskName)
+                    TextField("Enter your enemy", text: $taskName)
                         .textFieldStyle(.plain)
                         .font(.system(size: 18))
                         .foregroundColor(.white)
@@ -455,7 +471,7 @@ struct SetupView: View {
                 }) {
                     Text("Set DEADLINE")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.black)
+                        .foregroundColor(Color(hex: "#003660"))
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
                         .background(Color(hex: "#FFD700"))
@@ -476,10 +492,13 @@ struct OracleSetupView: View {
     @Binding var taskName: String
     /// タスク詳細のバインディング
     @Binding var taskDetail: String
-    /// タイマー開始時のコールバック
-    let onEstablishDefense: () -> Void
+    /// タイマー開始時のコールバック（分を引数として受け取る）
+    let onEstablishDefense: (Int) -> Void
     /// 画面を閉じる時のコールバック
     let onDismiss: () -> Void
+    
+    @State private var showTimePicker = false
+    @State private var selectedMinutes = 30
     
     var body: some View {
         GeometryReader { geometry in
@@ -490,49 +509,107 @@ struct OracleSetupView: View {
                     .foregroundColor(.white)
                     .padding(.top, 20)
                 
-                // タスク名入力フィールド
-                VStack(alignment: .leading, spacing: 15) {
-                    Text("Task Name")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                    
-                    TextField("Enter task name", text: $taskName)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 18))
-                        .foregroundColor(.white)
-                        .padding(15)
-                        .background(Color(hex: "#002D54"))
-                        .cornerRadius(8)
-                }
-                
-                // タスク詳細入力フィールド
-                VStack(alignment: .leading, spacing: 15) {
-                    Text("Task Description")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                    
-                    TextField("A 400 words essay on Economics", text: $taskDetail, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 18))
-                        .foregroundColor(.white)
-                        .padding(15)
-                        .frame(minHeight: 120)
-                        .background(Color(hex: "#002D54"))
-                        .cornerRadius(8)
+                if !showTimePicker {
+                    // 初期状態: 入力フィールド
+                    VStack(spacing: 30) {
+                        // タスク名入力フィールド
+                        VStack(alignment: .leading, spacing: 15) {
+                            Text("Task Name")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                            
+                            TextField("Enter your enemy", text: $taskName)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                                .padding(15)
+                                .background(Color(hex: "#002D54"))
+                                .cornerRadius(8)
+                        }
+                        
+                        // タスク詳細入力フィールド
+                        VStack(alignment: .leading, spacing: 15) {
+                            Text("Task Description")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                            
+                            TextField("A 400 words essay on Economics", text: $taskDetail, axis: .vertical)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                                .padding(15)
+                                .frame(minHeight: 120)
+                                .background(Color(hex: "#002D54"))
+                                .cornerRadius(8)
+                        }
+                    }
+                    .transition(.opacity)
+                } else {
+                    // 時間選択状態
+                    VStack(spacing: 30) {
+                        Text("You have \(selectedMinutes) minutes to complete \(taskName.isEmpty ? "your task" : taskName).")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 20)
+                        
+                        // 時間調整UI
+                        VStack(spacing: 15) {
+                            // 上矢印ボタン
+                            Button(action: {
+                                selectedMinutes += 1
+                            }) {
+                                Image(systemName: "arrowtriangle.up.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.white)
+                                    .frame(width: 50, height: 50)
+                                    .background(Color(hex: "#002D54"))
+                                    .clipShape(Circle())
+                            }
+                            
+                            // 時間表示
+                            Text("\(selectedMinutes)")
+                                .font(.system(size: 64, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            // 下矢印ボタン
+                            Button(action: {
+                                if selectedMinutes > 1 {
+                                    selectedMinutes -= 1
+                                }
+                            }) {
+                                Image(systemName: "arrowtriangle.down.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.white)
+                                    .frame(width: 50, height: 50)
+                                    .background(Color(hex: "#002D54"))
+                                    .clipShape(Circle())
+                            }
+                        }
+                    }
+                    .transition(.opacity)
                 }
                 
                 Spacer()
                 
-                // タイマー開始ボタン
+                // ボタン
                 Button(action: {
-                    onEstablishDefense()
+                    if !showTimePicker {
+                        // "Ask" タップ時: 入力フィールドをフェードアウト、時間選択をフェードイン
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showTimePicker = true
+                        }
+                    } else {
+                        // "Set DEADLINE" タップ時: タイマーを開始
+                        onEstablishDefense(selectedMinutes)
+                    }
                 }) {
-                    Text("Start Timer")
+                    Text(showTimePicker ? "Set DEADLINE" : "Ask")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Color(hex: "#003660"))
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
-                        .background(Color(hex: "#E00122"))
+                        .background(Color(hex: "#FFD700"))
                         .cornerRadius(12)
                 }
                 .padding(.bottom, 30)
@@ -611,6 +688,8 @@ struct ActiveTimerView: View {
         }
     }
     
+    @State private var fadeOpacity: Double = 1.0
+    
     var body: some View {
         ZStack {
             // 背景色（赤いボーダーを削除）
@@ -630,7 +709,14 @@ struct ActiveTimerView: View {
                     }
                     .simultaneousGesture(
                         LongPressGesture(minimumDuration: 2.0)
+                            .onChanged { _ in
+                                // 長押し開始時にフェードアウトアニメーションを開始
+                                withAnimation(.linear(duration: 2.0)) {
+                                    fadeOpacity = 0.0
+                                }
+                            }
                             .onEnded { _ in
+                                // 長押し終了時に確認画面へ遷移
                                 onCancel()
                             }
                     )
@@ -638,8 +724,10 @@ struct ActiveTimerView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
+                .opacity(fadeOpacity)
                 
                 Spacer()
+                .opacity(fadeOpacity)
                 
                 // メインコンテンツ
                 VStack(spacing: 40) {
@@ -670,13 +758,13 @@ struct ActiveTimerView: View {
                                 .foregroundColor(.gray)
                             
                             Text(deadlineFormatter.string(from: deadline))
-                                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                                .font(.system(size: 36, weight: .bold, design: .monospaced))
                                 .foregroundColor(Color(hex: "#E00122"))
                         }
                         
                         // 残り時間/経過時間/遅延時間
                         VStack(spacing: 8) {
-                            Text(taskStatus == .active ? "Remaining" : (taskStatus == .overdue ? "Overdue" : "Late Submitted!"))
+                            Text(taskStatus == .active ? "Rest of Your Life" : (taskStatus == .overdue ? "Overdue" : "Late Submitted!"))
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundColor(.gray)
                             
@@ -685,18 +773,11 @@ struct ActiveTimerView: View {
                                 .foregroundColor(taskStatus == .active ? .white : Color(hex: "#E00122"))
                         }
                     }
-                    
-                    // 警告テキスト
-                    if taskStatus == .active {
-                        Text("GPA Erosion")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(Color(hex: "#E00122"))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
-                    }
                 }
+                .opacity(fadeOpacity)
                 
                 Spacer()
+                .opacity(fadeOpacity)
                 
                 // ボタン群
                 VStack(spacing: 15) {
@@ -726,6 +807,7 @@ struct ActiveTimerView: View {
                 }
                 .padding(.horizontal, 30)
                 .padding(.bottom, 40)
+                .opacity(fadeOpacity)
             }
         }
     }
@@ -755,7 +837,7 @@ struct SuccessView: View {
                     .foregroundColor(Color(hex: "#FFD200"))
                 
                 // 成功メッセージ
-                Text("Assignment Submitted Successfully")
+                Text("Well done!")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
@@ -767,10 +849,10 @@ struct SuccessView: View {
                 Button(action: onDismiss) {
                     Text("Return Home")
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(Color(hex: "#003660"))
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .background(Color(hex: "#002D54"))
+                        .background(Color(hex: "#FFD200"))
                         .cornerRadius(12)
                 }
                 .padding(.horizontal, 40)
@@ -866,10 +948,10 @@ struct FailureView: View {
                     Button(action: onReturnHome) {
                         Text("Return Home")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color(hex: "#003660"))
                             .frame(maxWidth: .infinity)
                             .frame(height: 60)
-                            .background(Color(hex: "#002D54"))
+                            .background(Color(hex: "#FFD200"))
                             .cornerRadius(12)
                     }
                 }
@@ -920,7 +1002,7 @@ struct CancelReasonView: View {
                     .foregroundColor(.white)
                 
                 // 理由入力フィールド
-                TextField("Enter your reason", text: $cancelReason, axis: .vertical)
+                TextField("Enter your excuse", text: $cancelReason, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: 18))
                     .foregroundColor(.white)
@@ -940,15 +1022,66 @@ struct CancelReasonView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .background(Color(hex: "#002D54"))
+                        .background(Color(hex: "#E00122"))
                         .cornerRadius(12)
                 }
+                .disabled(cancelReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .padding(.horizontal, 40)
                 .padding(.bottom, 40)
             }
-            .onAppear {
-                // 画面表示時に自動的にテキストフィールドにフォーカス
-                isTextFieldFocused = true
+        }
+    }
+}
+
+/// キャンセル確認画面
+struct CancelConfirmView: View {
+    /// 確認時のコールバック
+    let onConfirm: () -> Void
+    /// キャンセル時のコールバック
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        ZStack {
+            Color(hex: "#001A33")
+                .ignoresSafeArea()
+            
+            VStack(spacing: 40) {
+                Spacer()
+                
+                // タイトル
+                Text("Are you sure?")
+                    .font(.system(size: 48, weight: .bold))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                
+                Spacer()
+                
+                // ボタン群
+                VStack(spacing: 15) {
+                    // Yes...ボタン
+                    Button(action: onConfirm) {
+                        Text("Yes...")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(Color(hex: "#E00122"))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 60)
+                            .background(Color.gray)
+                            .cornerRadius(12)
+                    }
+                    
+                    // Just kiddingボタン
+                    Button(action: onDismiss) {
+                        Text("Just kidding")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 60)
+                            .background(Color(hex: "#003660"))
+                            .cornerRadius(12)
+                    }
+                }
+                .padding(.horizontal, 40)
+                .padding(.bottom, 40)
             }
         }
     }
@@ -972,17 +1105,16 @@ struct ThankYouView: View {
                     .font(.system(size: 48, weight: .bold))
                     .foregroundColor(.white)
                 
-                // Quit.ボタン
+                // Quitボタン
                 Button(action: onQuit) {
-                    Text("Quit.")
+                    Text("Quit")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
+                        .frame(width: 150)
                         .frame(height: 60)
                         .background(Color(hex: "#002D54"))
                         .cornerRadius(12)
                 }
-                .padding(.horizontal, 40)
                 
                 Spacer()
             }
