@@ -6,6 +6,7 @@
 import SwiftUI
 import UIKit  // 画像処理（UIImage、UIFont、UIColorなど）を使用するため
 import AVFoundation  // カメラ機能を使用するため
+import GoogleGenerativeAI  // Gemini APIを使用するため
 
 // アプリの画面状態を定義するenum
 enum ScreenState {
@@ -35,6 +36,7 @@ struct ContentView: View {
     @State private var taskDetail = ""            // タスク詳細（AIモード用）
     @State private var selectedMinutes = 30       // 選択された分数（AIモード用）
     @State private var showTimePicker = false     // 時間ピッカー表示フラグ（AIモード用）
+    @State private var isAsking = false           // Gemini API呼び出し中のフラグ
     
     // UI状態
     @State private var cancelReason = ""          // キャンセル理由
@@ -67,9 +69,27 @@ struct ContentView: View {
                 // B2: AIタイマー設定画面 - タスク名、詳細、分数を設定
                 ASetView(taskName: $taskName, taskDetail: $taskDetail, 
                         minutes: $selectedMinutes, showPicker: $showTimePicker,
+                        isAsking: $isAsking,
+                        onAsk: {
+                            // Askボタンが押されたらGemini APIを呼び出す
+                            askGeminiForMinutes()
+                        },
                         onSet: { 
                             // 選択された分数を現在時刻に加算してデッドラインを設定
-                            deadline = Calendar.current.date(byAdding: .minute, value: selectedMinutes, to: Date()) ?? Date()
+                            // selectedMinutesは表示用の値（初期値30、失敗時60、成功時は100倍）なので、
+                            // 実際の分数に変換する必要がある
+                            let actualMinutes: Int
+                            if selectedMinutes == 30 {
+                                // 初期値（何もしなかった時）: 30分
+                                actualMinutes = 30
+                            } else if selectedMinutes == 60 {
+                                // AIが動いたけど失敗時: 60分（表示値そのまま）
+                                actualMinutes = 60
+                            } else {
+                                // AIが判断した時: 100倍されているので100で割る
+                                actualMinutes = selectedMinutes / 100
+                            }
+                            deadline = Calendar.current.date(byAdding: .minute, value: actualMinutes, to: Date()) ?? Date()
                             state = .timer
                             startTimer()  // タイマーを開始
                         }, 
@@ -131,12 +151,13 @@ struct ContentView: View {
     
     // 状態を初期化する関数（ホーム画面表示時に呼ばれる）
     func reset() {
-        taskName = ""
+                            taskName = ""
         taskDetail = ""
-        deadline = Date()
+                            deadline = Date()
         currentTime = Date()
         selectedMinutes = 30
         showTimePicker = false
+        isAsking = false  // Gemini API呼び出し中のフラグもリセット
         cancelReason = ""
         hasLateSubmitted = false
         lateDuration = 0
@@ -244,40 +265,44 @@ struct ContentView: View {
         // ベース画像を描画
         baseImage.draw(in: CGRect(origin: .zero, size: size))
         
-        // テキスト1: "Default" - ピンク色、真ん中、大きい
+        // テキスト1: "Default" - ピンク色、真ん中、大きい（4倍に拡大: 72 * 4 = 288）
         let aoriText = "Default"
-        let aoriFont = UIFont.systemFont(ofSize: 72, weight: .bold)
+        let aoriFont = UIFont.systemFont(ofSize: 288, weight: .bold)
         let aoriColor = UIColor.systemPink  // ピンク色
         let aoriAttributes: [NSAttributedString.Key: Any] = [
             .font: aoriFont,
             .foregroundColor: aoriColor
         ]
-        let aoriSize = aoriText.size(withAttributes: aoriAttributes)
+        let aoriAttributedString = NSAttributedString(string: aoriText, attributes: aoriAttributes)
+        let aoriSize = aoriAttributedString.size()
         let aoriRect = CGRect(
             x: (size.width - aoriSize.width) / 2,  // 真ん中
             y: (size.height - aoriSize.height) / 2,
             width: aoriSize.width,
             height: aoriSize.height
         )
-        aoriText.draw(in: aoriRect, withAttributes: aoriAttributes)
+        // NSAttributedStringを使って描画
+        aoriAttributedString.draw(in: aoriRect)
         
-        // テキスト2: "LINE of DEATH" - 灰色、半透明、右下、小さい
+        // テキスト2: "LINE of DEATH" - 灰色、半透明、右下、小さい（4倍に拡大: 24 * 4 = 96）
         let sukasiText = "LINE of DEATH"
-        let sukasiFont = UIFont.systemFont(ofSize: 24, weight: .medium)
+        let sukasiFont = UIFont.systemFont(ofSize: 96, weight: .medium)
         let sukasiColor = UIColor.gray.withAlphaComponent(0.7)  // 灰色、半透明（alpha 0.7）
         let sukasiAttributes: [NSAttributedString.Key: Any] = [
             .font: sukasiFont,
             .foregroundColor: sukasiColor
         ]
-        let sukasiSize = sukasiText.size(withAttributes: sukasiAttributes)
-        let padding: CGFloat = 20
+        let sukasiAttributedString = NSAttributedString(string: sukasiText, attributes: sukasiAttributes)
+        let sukasiSize = sukasiAttributedString.size()
+        let padding: CGFloat = 40  // パディングも少し増やす
         let sukasiRect = CGRect(
             x: size.width - sukasiSize.width - padding,  // 右下
             y: size.height - sukasiSize.height - padding,
             width: sukasiSize.width,
             height: sukasiSize.height
         )
-        sukasiText.draw(in: sukasiRect, withAttributes: sukasiAttributes)
+        // NSAttributedStringを使って描画
+        sukasiAttributedString.draw(in: sukasiRect)
         
         // 合成された画像を取得
         guard let composedImage = UIGraphicsGetImageFromCurrentImageContext() else {
@@ -285,6 +310,125 @@ struct ContentView: View {
         }
         
         return composedImage
+    }
+    
+    // Gemini APIを呼び出してタスクの適切な分数を取得する関数
+    func askGeminiForMinutes() {
+        // 既にリクエスト中の場合は何もしない
+        guard !isAsking else { return }
+        
+        // タスク名と詳細が空の場合は何もしない（ボタンが無効化されているので通常は到達しない）
+        guard !taskName.isEmpty || !taskDetail.isEmpty else {
+            return
+        }
+        
+        isAsking = true  // リクエスト中フラグを立てる
+        
+        // Gemini APIキー
+        let apiKey = "AIzaSyBo0a3Z_HKiQsEI8P90wWIntxjPHBcDkqo"
+        
+        // Geminiモデルを初期化
+        let model = GenerativeModel(name: "gemini-2.5-flash-lite", apiKey: apiKey)
+        
+        // プロンプトを作成（より明確な指示を追加）
+        let prompt = """
+        Task Name: \(taskName.isEmpty ? "Not specified" : taskName)
+        Task Description: \(taskDetail.isEmpty ? "Not specified" : taskDetail)
+        
+        Estimate the time needed to complete this task in minutes.
+        Return ONLY a single integer number between 30 and 180.
+        Do NOT include any text, explanation, or units. Only return the number.
+        Example: If you estimate 60 minutes, return only: 60
+        """
+        
+        // Gemini APIを呼び出す（非同期）
+        Task {
+            do {
+                print("Gemini API: Sending request with prompt length: \(prompt.count)")
+                print("Gemini API: Task Name: '\(taskName)', Task Detail: '\(taskDetail)'")
+                let response = try await model.generateContent(prompt)
+                print("Gemini API: Received response")
+                
+                // レスポンスのテキストを取得（response.textを直接使用）
+                let responseText = response.text
+                
+                if let text = responseText {
+                    print("Gemini API Response Text: '\(text)'")
+                    
+                    // テキストをトリム
+                    let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    print("Gemini API Trimmed Text: '\(trimmedText)'")
+                    
+                    // 数値を抽出（最初に見つかった数値を使用）
+                    var foundNumber: Int?
+                    
+                    // まず、整数として直接解析を試みる
+                    if let number = Int(trimmedText) {
+                        foundNumber = number
+                        print("Gemini API: Direct parse successful: \(number)")
+                    } else {
+                        // 数字のみを抽出
+                        let numbers = trimmedText.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+                        print("Gemini API: Extracted numbers string: '\(numbers)'")
+                        if !numbers.isEmpty {
+                            foundNumber = Int(numbers)
+                            if let num = foundNumber {
+                                print("Gemini API: Parsed number: \(num)")
+                            } else {
+                                print("Gemini API: Failed to convert '\(numbers)' to Int")
+                            }
+                        } else {
+                            print("Gemini API: No numbers found in text")
+                        }
+                    }
+                    
+                    if let minutes = foundNumber, minutes > 0 {
+                        print("Gemini API: Successfully parsed minutes: \(minutes)")
+                        // 30-180分の範囲に制限
+                        let clampedMinutes = max(30, min(180, minutes))
+                        print("Gemini API: Clamped minutes: \(clampedMinutes)")
+                        
+                        // メインスレッドでUIを更新（AIが判断した値の100倍を表示）
+                        await MainActor.run {
+                            selectedMinutes = clampedMinutes * 100  // AIが判断した値の100倍
+                            showTimePicker = true
+                            isAsking = false
+                            print("Gemini API: Set minutes to \(clampedMinutes * 100) (original: \(clampedMinutes))")
+                        }
+                    } else {
+                        print("Gemini API: Failed to parse valid number. foundNumber: \(foundNumber?.description ?? "nil")")
+                        // 数値の解析に失敗した場合は60（失敗時の値）を設定
+                        await MainActor.run {
+                            selectedMinutes = 60  // AIが動いたけど失敗時: 60
+                            showTimePicker = true
+                            isAsking = false
+                        }
+                    }
+                } else {
+                    print("Gemini API: Response text is nil - setting to 60")
+                    // レスポンスが空の場合は60（失敗時の値）を設定
+                    await MainActor.run {
+                        selectedMinutes = 60  // AIが動いたけど失敗時: 60
+                        showTimePicker = true
+                        isAsking = false
+                    }
+                }
+            } catch {
+                // エラーが発生した場合は60（失敗時の値）を設定
+                print("Gemini API Error: \(error.localizedDescription)")
+                print("Gemini API Error Details: \(error)")
+                if let nsError = error as NSError? {
+                    print("Gemini API NSError Domain: \(nsError.domain)")
+                    print("Gemini API NSError Code: \(nsError.code)")
+                    print("Gemini API NSError UserInfo: \(nsError.userInfo)")
+                }
+                await MainActor.run {
+                    selectedMinutes = 60  // AIが動いたけど失敗時: 60
+                    showTimePicker = true
+                    isAsking = false
+                }
+            }
+        }
     }
     
     // Instagramストーリーに共有する関数
@@ -364,7 +508,7 @@ struct HomeView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
                         .background(Color(hex: "#002D54"))
-                        .cornerRadius(12) 
+                        .cornerRadius(12)
                 }
                 
                 // AIボタン - B2画面へ遷移
@@ -375,7 +519,7 @@ struct HomeView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
                         .background(Color(hex: "#002D54"))
-                        .cornerRadius(12) 
+                        .cornerRadius(12)
                 }
             }
             .padding(.horizontal, 40)
@@ -395,11 +539,25 @@ struct MSetView: View {
     var body: some View {
         GeometryReader { g in
             VStack(spacing: 30) {
+                // ×ボタン（左上）- ホーム画面に戻る
+                HStack {
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Color(hex: "#002D54"))
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                
                 // タイトル
                 Text("Manual Timer")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.white)
-                    .padding(.top, 20)
                 
                 // タスク名入力フィールド
                 VStack(alignment: .leading, spacing: 15) {
@@ -440,9 +598,9 @@ struct MSetView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
                         .background(Color(hex: "#FFD200"))
-                        .cornerRadius(12) 
+                        .cornerRadius(12)
                 }
-                .padding(.bottom, 80)
+                .padding(.bottom, 30)
             }
             .padding(.horizontal, 30)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -457,119 +615,136 @@ struct ASetView: View {
     @Binding var taskDetail: String      // タスク詳細のバインディング
     @Binding var minutes: Int            // 選択された分数のバインディング
     @Binding var showPicker: Bool        // 時間ピッカー表示フラグのバインディング
+    @Binding var isAsking: Bool          // Gemini API呼び出し中のフラグ
+    let onAsk: () -> Void                // Askボタンのアクション
     let onSet: () -> Void                // Set DEADLINEボタンのアクション
     let onDismiss: () -> Void            // キャンセル時のアクション
     
     var body: some View {
         VStack(spacing: 30) {
+            // ×ボタン（左上）- ホーム画面に戻る
+            HStack {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Color(hex: "#002D54"))
+                        .clipShape(Circle())
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            
             // タイトル
             Text("AI Scheduler")
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(.white)
-                .padding(.top, 20)
             
             if !showPicker {
                 // 初期状態: タスク名と詳細の入力フィールドを表示
-                VStack(spacing: 30) {
-                    // タスク名入力フィールド
-                    VStack(alignment: .leading, spacing: 15) {
-                        Text("Task Name")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                        
-                        TextField("Enter your enemy", text: $taskName)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 18))
-                            .foregroundColor(.white)
-                            .padding(15)
-                            .background(Color(hex: "#002D54"))
-                            .cornerRadius(8)
-                    }
-                    
-                    // タスク詳細入力フィールド
-                    VStack(alignment: .leading, spacing: 15) {
-                        Text("Task Description")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                        
-                        TextField("A 400 words essay on Economics", text: $taskDetail, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 18))
-                            .foregroundColor(.white)
-                            .padding(15)
-                            .frame(minHeight: 120)
-                            .background(Color(hex: "#002D54"))
-                            .cornerRadius(8)
-                    }
-                }
-            } else {
-                // Askボタンを押した後: 分数選択UIを表示
-                VStack(spacing: 30) {
-                    // 選択された分数を表示するテキスト
-                    (Text("You have ") + 
-                     Text("\(minutes)").foregroundColor(Color(hex: "#FFD200")) + 
-                     Text(" minutes to complete ") + 
-                     Text(taskName.isEmpty ? "your task" : taskName) + 
-                     Text("."))
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 20)
-                    
-                    // 分数を調整するボタン（上下矢印）
-                    VStack(spacing: 15) {
-                        // 増やすボタン
-                        Button(action: { minutes += 1 }) { 
-                            Image(systemName: "arrowtriangle.up.fill")
-                                .font(.system(size: 24))
+                    VStack(spacing: 30) {
+                        // タスク名入力フィールド
+                        VStack(alignment: .leading, spacing: 15) {
+                            Text("Task Name")
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.white)
-                                .frame(width: 50, height: 50)
+                            
+                            TextField("Enter your enemy", text: $taskName)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                                .padding(15)
                                 .background(Color(hex: "#002D54"))
-                                .clipShape(Circle()) 
+                                .cornerRadius(8)
                         }
                         
+                        // タスク詳細入力フィールド
+                        VStack(alignment: .leading, spacing: 15) {
+                            Text("Task Description")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                            
+                            TextField("A 400 words essay on Economics", text: $taskDetail, axis: .vertical)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                                .padding(15)
+                                .frame(minHeight: 120)
+                                .background(Color(hex: "#002D54"))
+                                .cornerRadius(8)
+                        }
+                    }
+                } else {
+                // Askボタンを押した後: 分数選択UIを表示
+                    VStack(spacing: 30) {
+                    // 選択された分数を表示するテキスト
+                        (Text("You have ") +
+                     Text("\(minutes)").foregroundColor(Color(hex: "#FFD200")) + 
+                         Text(" minutes to complete ") +
+                         Text(taskName.isEmpty ? "your task" : taskName) +
+                         Text("."))
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                        
+                    // 分数を調整するボタン（上下矢印）
+                        VStack(spacing: 15) {
+                        // 増やすボタン
+                        Button(action: { minutes += 1 }) { 
+                                Image(systemName: "arrowtriangle.up.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.white)
+                                    .frame(width: 50, height: 50)
+                                    .background(Color(hex: "#002D54"))
+                                    .clipShape(Circle())
+                            }
+                            
                         // 分数を大きく表示
                         Text("\(minutes)")
-                            .font(.system(size: 64, weight: .bold))
+                                .font(.system(size: 64, weight: .bold))
                             .foregroundColor(Color(hex: "#FFD200"))
                         
                         // 減らすボタン（1分以上でないと減らせない）
                         Button(action: { if minutes > 1 { minutes -= 1 } }) { 
-                            Image(systemName: "arrowtriangle.down.fill")
-                                .font(.system(size: 24))
-                                .foregroundColor(.white)
-                                .frame(width: 50, height: 50)
-                                .background(Color(hex: "#002D54"))
-                                .clipShape(Circle()) 
+                                Image(systemName: "arrowtriangle.down.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.white)
+                                    .frame(width: 50, height: 50)
+                                    .background(Color(hex: "#002D54"))
+                                    .clipShape(Circle())
+                            }
                         }
                     }
                 }
-            }
-            
-            Spacer()
-            
+                
+                Spacer()
+                
             // Askボタン（初期状態）またはSet DEADLINEボタン（時間選択状態）
-            Button(action: { 
+                Button(action: {
                 if !showPicker { 
-                    // 初期状態なら時間ピッカーを表示
-                    withAnimation { showPicker = true } 
-                } else { 
+                    // 初期状態ならGemini APIを呼び出す
+                    onAsk()
+                    } else {
                     // 時間選択状態ならタイマーを開始
                     onSet() 
-                } 
-            }) {
-                Text(showPicker ? "Set DEADLINE" : "Ask")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(Color(hex: "#003660"))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 55)
+                    }
+                }) {
+                Text(showPicker ? "Set DEADLINE" : (isAsking ? "Asking..." : "Ask"))
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Color(hex: "#003660"))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 55)
                     .background(Color(hex: "#FFD200"))
-                    .cornerRadius(12)
+                        .cornerRadius(12)
+                }
+            .disabled(isAsking || (!showPicker && taskName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && taskDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))  // リクエスト中、またはNameとDescriptionの両方が空欄の場合は無効化
+                .padding(.bottom, 30)
             }
-            .padding(.bottom, 30)
-        }
-        .padding(.horizontal, 30)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(hex: "#001A33"))
+            .padding(.horizontal, 30)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(hex: "#001A33"))
     }
 }
 
@@ -612,7 +787,7 @@ struct TimerView: View {
                                     withAnimation(.easeIn(duration: 3)) { overlay = 1 } 
                                 }
                             }
-                            .onEnded { _ in 
+                            .onEnded { _ in
                                 // ボタンを離したとき
                                 pressTimer?.invalidate()  // タイマーをキャンセル
                                 pressTimer = nil
@@ -666,13 +841,13 @@ struct TimerView: View {
                 
                 // Submitボタン - タイマーを停止して成功画面へ遷移
                 Button(action: onSubmit) { 
-                    Text("Submit")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 60)
+                            Text("Submit")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 60)
                         .background(Color(hex: "#003660"))
-                        .cornerRadius(12) 
+                                .cornerRadius(12)
                 }
                 .padding(.horizontal, 30)
                 .padding(.bottom, 40)
@@ -724,12 +899,12 @@ struct QuitView: View {
                     // Yes...ボタン - 理由入力画面へ遷移
                     Button(action: onYes) { 
                         Text("Yes...")
-                            .font(.system(size: 20, weight: .semibold))
+                                .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(Color(hex: "#E00122"))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(Color.gray)
-                            .cornerRadius(12) 
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 60)
+                                .background(Color.gray)
+                                .cornerRadius(12)
                     }
                     
                     // Just kiddingボタン - タイマー画面に戻る（タイマーは動き続ける）
@@ -740,7 +915,7 @@ struct QuitView: View {
                             .frame(maxWidth: .infinity)
                             .frame(height: 60)
                             .background(Color(hex: "#003660"))
-                            .cornerRadius(12) 
+                            .cornerRadius(12)
                     }
                 }
                 .padding(.horizontal, 40)
@@ -763,16 +938,16 @@ struct WhyView: View {
             
             VStack(spacing: 40) {
                 // ×ボタン（左上）
-                HStack { 
+                HStack {
                     Button(action: onBack) { 
                         Image(systemName: "xmark")
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 40, height: 40)
                             .background(Color(hex: "#002D54"))
-                            .clipShape(Circle()) 
+                            .clipShape(Circle())
                     }
-                    Spacer() 
+                    Spacer()
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
@@ -798,14 +973,14 @@ struct WhyView: View {
                 Spacer()
                 
                 // Sendボタン - 理由が入力されていない場合は無効化
-                Button(action: onSubmit) { 
+                Button(action: onSubmit) {
                     Text("Send")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
                         .background(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : Color(hex: "#E00122"))
-                        .cornerRadius(12) 
+                        .cornerRadius(12)
                 }
                 .disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .padding(.horizontal, 40)
@@ -847,12 +1022,12 @@ struct SuccessView: View {
                 // Return Homeボタン - ホーム画面へ遷移
                 Button(action: onHome) { 
                     Text("Return Home")
-                        .font(.system(size: 20, weight: .semibold))
+                            .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(Color(hex: "#003660"))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 60)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 60)
                         .background(Color(hex: "#FFD200"))
-                        .cornerRadius(12) 
+                            .cornerRadius(12)
                 }
                 .padding(.horizontal, 40)
                 .padding(.bottom, 40)
@@ -875,7 +1050,7 @@ struct PenaltyView: View {
                 Text("\(count)")
                     .font(.system(size: 120, weight: .bold))
                     .foregroundColor(Color(hex: "#E00122"))
-                Spacer() 
+                Spacer()
             }
         }
     }
@@ -898,8 +1073,8 @@ struct FailView: View {
                 
                 // "Deadline Exceeded"を表示
                 Text("Deadline Exceeded")
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundColor(Color(hex: "#E00122"))
+                        .font(.system(size: 48, weight: .bold))
+                        .foregroundColor(Color(hex: "#E00122"))
                 
                 // ×マークアイコン
                 Image(systemName: "xmark.circle.fill")
@@ -976,7 +1151,7 @@ extension Color {
         default:  // 不正な形式の場合は透明
             (a, r, g, b) = (1, 1, 1, 0)
         }
-        
+
         // RGB値を0-1の範囲に正規化してColorを生成
         self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, opacity: Double(a) / 255)
     }
