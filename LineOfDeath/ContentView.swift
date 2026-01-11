@@ -8,6 +8,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
 
 /// アプリの状態を管理するenum
 enum AppState {
@@ -47,13 +48,6 @@ enum TaskStatus {
     case lateSubmitted
 }
 
-/// Oracle用のタスクアイテム
-struct OracleTaskItem: Identifiable {
-    let id = UUID()
-    var taskName: String
-    var taskDetail: String
-}
-
 /// メインのContentView
 /// アプリ全体の状態管理と画面遷移を担当
 struct ContentView: View {
@@ -79,8 +73,6 @@ struct ContentView: View {
     @State private var showSetupSheet: Bool = false
     /// AI Scholastic Oracleセットアップシート表示フラグ
     @State private var showOracleSheet: Bool = false
-    /// Oracle用のタスクリスト（最大3つ）
-    @State private var oracleTasks: [OracleTaskItem] = [OracleTaskItem(taskName: "", taskDetail: "")]
     /// 撮影した写真
     @State private var capturedImage: UIImage?
     /// 写真ピッカー
@@ -114,6 +106,8 @@ struct ContentView: View {
                 HomeView(
                     onDefineYourFate: {
                         appState = .setup
+                        // 初期値を現在時刻の1時間後に設定
+                        deadline = Calendar.current.date(byAdding: .hour, value: 1, to: Date()) ?? Date()
                         showSetupSheet = true
                     },
                     onOracle: {
@@ -197,11 +191,10 @@ struct ContentView: View {
                 )
                 .sheet(isPresented: $showOracleSheet) {
                     OracleSetupView(
-                        oracleTasks: $oracleTasks,
+                        taskName: $taskName,
+                        taskDetail: $taskDetail,
                         onEstablishDefense: {
                             showOracleSheet = false
-                            // 最初のタスクの名前を使用（空の場合も可）
-                            taskName = oracleTasks.first?.taskName ?? ""
                             // 現在時刻から30分後に自動設定
                             deadline = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
                             currentTime = Date()
@@ -290,53 +283,17 @@ struct ContentView: View {
                 )
                 
             case .dueDateGone:
-                // Due date gone!表示画面（2秒表示後、カメラに遷移）
-                DueDateGoneView(onComplete: {
-                    appState = .photoCapture
-                })
-                
-            case .photoCapture:
-                // カメラ撮影画面
-                ZStack {
-                    Color(hex: "#001A33")
-                        .ignoresSafeArea()
-                    
-                    ImagePicker(selectedImage: $capturedImage)
-                }
-                .onChange(of: capturedImage) { newImage in
-                    if newImage != nil {
-                        appState = .photoDisplay
-                    }
-                }
-                
-            case .photoDisplay:
-                // 写真表示画面
-                ZStack {
-                    Color(hex: "#001A33")
-                        .ignoresSafeArea()
-                    
-                    if let image = capturedImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .ignoresSafeArea()
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                // タップでLate-submission画面に遷移
-                                lateDuration = currentTime.timeIntervalSince(deadline)
-                                taskStatus = .lateSubmitted
-                                appState = .failure
-                            }
-                    } else {
-                        VStack {
-                            Spacer()
-                            Text("No Image")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundColor(.white)
-                            Spacer()
+                // Time is Up!表示画面（2秒表示後、3秒カウントダウン、その後裏で写真撮影）
+                DueDateGoneView(
+                    onComplete: { image in
+                        if let image = image {
+                            capturedImage = image
                         }
+                        lateDuration = currentTime.timeIntervalSince(deadline)
+                        taskStatus = .lateSubmitted
+                        appState = .failure
                     }
-                }
+                )
             }
         }
         .preferredColorScheme(.dark)
@@ -374,7 +331,6 @@ struct ContentView: View {
         cancelReason = ""
         showSetupSheet = false
         showOracleSheet = false
-        oracleTasks = [OracleTaskItem(taskName: "", taskDetail: "")]
         capturedImage = nil
         photoPickerItem = nil
         showDueDateGone = false
@@ -510,96 +466,58 @@ struct SetupView: View {
 
 /// AI Scholastic Oracle機能のセットアップ画面
 struct OracleSetupView: View {
-    /// Oracle用のタスクリスト（最大3つ）
-    @Binding var oracleTasks: [OracleTaskItem]
+    /// タスク名のバインディング
+    @Binding var taskName: String
+    /// タスク詳細のバインディング
+    @Binding var taskDetail: String
     /// タイマー開始時のコールバック
     let onEstablishDefense: () -> Void
     /// 画面を閉じる時のコールバック
     let onDismiss: () -> Void
     
     var body: some View {
-        VStack(spacing: 0) {
-            // タイトル
-            Text("AI Scheduler")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(.white)
-                .padding(.top, 20)
-                .padding(.bottom, 20)
-            
-            // スクロール可能なコンテンツ
-            ScrollView {
-                VStack(spacing: 30) {
-                    // タスクリスト
-                    ForEach(Array(oracleTasks.enumerated()), id: \.element.id) { index, task in
-                        VStack(alignment: .leading, spacing: 15) {
-                            // タスク番号
-                            Text("Task \(index + 1)")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(.white)
-                            
-                            // タスク名入力フィールド
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Task Name")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.white)
-                                
-                                TextField("Task Name, Enter", text: Binding(
-                                    get: { task.taskName },
-                                    set: { oracleTasks[index].taskName = $0 }
-                                ))
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 16))
-                                .foregroundColor(.white)
-                                .padding(15)
-                                .background(Color(hex: "#002D54"))
-                                .cornerRadius(8)
-                            }
-                            
-                            // タスク詳細入力フィールド
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Task Detail")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.white)
-                                
-                                TextField("Enter Task Detail", text: Binding(
-                                    get: { task.taskDetail },
-                                    set: { oracleTasks[index].taskDetail = $0 }
-                                ))
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 16))
-                                .foregroundColor(.white)
-                                .padding(15)
-                                .background(Color(hex: "#002D54"))
-                                .cornerRadius(8)
-                            }
-                            
-                            // +ボタン（最後のタスクの下に表示、最大3つまで）
-                            if index == oracleTasks.count - 1 && oracleTasks.count < 3 {
-                                Button(action: {
-                                    oracleTasks.append(OracleTaskItem(taskName: "", taskDetail: ""))
-                                }) {
-                                    HStack {
-                                        Spacer()
-                                        Image(systemName: "plus")
-                                            .font(.system(size: 20, weight: .semibold))
-                                            .foregroundColor(.white)
-                                            .frame(width: 50, height: 50)
-                                            .background(Color.white.opacity(0.2))
-                                            .clipShape(Circle())
-                                        Spacer()
-                                    }
-                                }
-                                .padding(.top, 10)
-                            }
-                        }
-                        .padding(.horizontal, 30)
-                    }
+        GeometryReader { geometry in
+            VStack(spacing: 30) {
+                // タイトル
+                Text("AI Scheduler")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.top, 20)
+                
+                // タスク名入力フィールド
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Task Name")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    TextField("Enter task name", text: $taskName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 18))
+                        .foregroundColor(.white)
+                        .padding(15)
+                        .background(Color(hex: "#002D54"))
+                        .cornerRadius(8)
                 }
-                .padding(.bottom, 100)
-            }
-            
-            // タイマー開始ボタン（画面下部に固定）
-            VStack {
+                
+                // タスク詳細入力フィールド
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Task Description")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    
+                    TextField("Enter task description", text: $taskDetail, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 18))
+                        .foregroundColor(.white)
+                        .padding(15)
+                        .frame(minHeight: 120)
+                        .background(Color(hex: "#002D54"))
+                        .cornerRadius(8)
+                }
+                
+                Spacer()
+                
+                // タイマー開始ボタン
                 Button(action: {
                     onEstablishDefense()
                 }) {
@@ -611,13 +529,12 @@ struct OracleSetupView: View {
                         .background(Color(hex: "#E00122"))
                         .cornerRadius(12)
                 }
-                .padding(.horizontal, 30)
                 .padding(.bottom, 30)
             }
+            .padding(.horizontal, 30)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(hex: "#001A33"))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(hex: "#001A33"))
     }
 }
 
@@ -1078,8 +995,12 @@ struct ImagePicker: UIViewControllerRepresentable {
 
 /// Due date gone!表示画面
 struct DueDateGoneView: View {
-    /// カメラ撮影後のコールバック
-    let onComplete: () -> Void
+    /// カメラ撮影後のコールバック（撮影した画像を渡す、失敗時はnil）
+    let onComplete: (UIImage?) -> Void
+    
+    @State private var showCountdown = false
+    @State private var countdownValue = 3
+    @StateObject private var cameraManager = BackgroundCameraManager()
     
     var body: some View {
         ZStack {
@@ -1088,17 +1009,126 @@ struct DueDateGoneView: View {
             
             VStack {
                 Spacer()
-                Text("Time is Up!")
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundColor(Color(hex: "#E00122"))
+                if showCountdown {
+                    Text("\(countdownValue)")
+                        .font(.system(size: 120, weight: .bold))
+                        .foregroundColor(Color(hex: "#E00122"))
+                } else {
+                    Text("Time is Up!")
+                        .font(.system(size: 48, weight: .bold))
+                        .foregroundColor(Color(hex: "#E00122"))
+                }
                 Spacer()
             }
         }
         .onAppear {
-            // 2秒後にカメラを起動
+            // 2秒後にカウントダウンを開始
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                onComplete()
+                showCountdown = true
+                startCountdown()
             }
+        }
+    }
+    
+    private func startCountdown() {
+        // カウントダウン（3秒間）
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            countdownValue -= 1
+            if countdownValue <= 0 {
+                timer.invalidate()
+                // カウントダウン終了後、裏で写真を撮影
+                cameraManager.capturePhoto { image in
+                    onComplete(image)
+                }
+            }
+        }
+    }
+}
+
+/// 裏で写真を撮影するカメラマネージャー
+class BackgroundCameraManager: NSObject, ObservableObject {
+    private let session = AVCaptureSession()
+    private let photoOutput = AVCapturePhotoOutput()
+    private var captureCompletion: ((UIImage?) -> Void)?
+    
+    override init() {
+        super.init()
+        configureSession()
+    }
+    
+    private func configureSession() {
+        session.beginConfiguration()
+        session.sessionPreset = .photo
+        
+        // フロントカメラを使用
+        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
+              let input = try? AVCaptureDeviceInput(device: camera),
+              session.canAddInput(input) else {
+            print("Failed to add camera input.")
+            session.commitConfiguration()
+            return
+        }
+        session.addInput(input)
+        
+        // 写真出力を追加
+        guard session.canAddOutput(photoOutput) else {
+            print("Failed to add photo output.")
+            session.commitConfiguration()
+            return
+        }
+        session.addOutput(photoOutput)
+        
+        session.commitConfiguration()
+    }
+    
+    func capturePhoto(completion: @escaping (UIImage?) -> Void) {
+        captureCompletion = completion
+        
+        // セッションを開始（バックグラウンドスレッドで）
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
+            if !self.session.isRunning {
+                self.session.startRunning()
+            }
+            
+            // セッションが開始されるまで少し待つ
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let settings = AVCapturePhotoSettings()
+                self.photoOutput.capturePhoto(with: settings, delegate: self)
+            }
+        }
+    }
+    
+    deinit {
+        session.stopRunning()
+    }
+}
+
+extension BackgroundCameraManager: AVCapturePhotoCaptureDelegate {
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        session.stopRunning()
+        
+        if let error = error {
+            print("Error capturing photo: \(error)")
+            DispatchQueue.main.async {
+                self.captureCompletion?(nil)
+            }
+            return
+        }
+        
+        guard let imageData = photo.fileDataRepresentation(),
+              let image = UIImage(data: imageData) else {
+            print("Failed to convert photo to image.")
+            DispatchQueue.main.async {
+                self.captureCompletion?(nil)
+            }
+            return
+        }
+        
+        DispatchQueue.main.async {
+            self.captureCompletion?(image)
+            self.captureCompletion = nil
         }
     }
 }
