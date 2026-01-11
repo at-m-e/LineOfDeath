@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import PhotosUI
+import UIKit
 
 /// アプリの状態を管理するenum
 enum AppState {
@@ -27,6 +29,12 @@ enum AppState {
     case cancelReason
     /// サンクユー画面
     case thankYou
+    /// Due date gone!表示中
+    case dueDateGone
+    /// カメラ撮影画面
+    case photoCapture
+    /// 写真表示画面
+    case photoDisplay
 }
 
 /// タスクの状態を管理するenum
@@ -37,6 +45,13 @@ enum TaskStatus {
     case overdue
     /// 遅れて提出済み（完了）
     case lateSubmitted
+}
+
+/// Oracle用のタスクアイテム
+struct OracleTaskItem: Identifiable {
+    let id = UUID()
+    var taskName: String
+    var taskDetail: String
 }
 
 /// メインのContentView
@@ -64,6 +79,16 @@ struct ContentView: View {
     @State private var showSetupSheet: Bool = false
     /// AI Scholastic Oracleセットアップシート表示フラグ
     @State private var showOracleSheet: Bool = false
+    /// Oracle用のタスクリスト（最大3つ）
+    @State private var oracleTasks: [OracleTaskItem] = [OracleTaskItem(taskName: "", taskDetail: "")]
+    /// 撮影した写真
+    @State private var capturedImage: UIImage?
+    /// 写真ピッカー
+    @State private var photoPickerItem: PhotosPickerItem?
+    /// Due date gone表示フラグ
+    @State private var showDueDateGone: Bool = false
+    /// カメラ表示フラグ
+    @State private var showCamera: Bool = false
     
     /// プライマリ背景色（Deep Navy）
     let primaryBackground = Color(hex: "#001A33")
@@ -111,9 +136,16 @@ struct ContentView: View {
                         deadline: $deadline,
                         onEstablishDefense: {
                             showSetupSheet = false
-                            appState = .timer
-                            taskStatus = .active
-                            startTimer()
+                            currentTime = Date()
+                            // 開始時にすでに期限を過ぎていた場合はDue date gone!画面から始める
+                            if currentTime >= deadline {
+                                taskStatus = .overdue
+                                appState = .dueDateGone
+                            } else {
+                                taskStatus = .active
+                                appState = .timer
+                                startTimer()
+                            }
                         },
                         onDismiss: {
                             showSetupSheet = false
@@ -133,8 +165,14 @@ struct ContentView: View {
                     taskStatus: $taskStatus,
                     lateDuration: $lateDuration,
                     onSubmitAssignment: {
-                        stopTimer()
-                        appState = .success
+                        // 期限が過ぎている場合はDue date gone!画面に遷移
+                        if currentTime >= deadline {
+                            stopTimer()
+                            appState = .dueDateGone
+                        } else {
+                            stopTimer()
+                            appState = .success
+                        }
                     },
                     onCancel: {
                         stopTimer()
@@ -157,14 +195,23 @@ struct ContentView: View {
                 )
                 .sheet(isPresented: $showOracleSheet) {
                     OracleSetupView(
-                        taskName: $taskName,
-                        taskDetail: $taskDetail,
-                        deadline: $deadline,
+                        oracleTasks: $oracleTasks,
                         onEstablishDefense: {
                             showOracleSheet = false
-                            appState = .oracleTimer
-                            taskStatus = .active
-                            startTimer()
+                            // 最初のタスクの名前を使用（空の場合も可）
+                            taskName = oracleTasks.first?.taskName ?? ""
+                            // 現在時刻から30分後に自動設定
+                            deadline = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
+                            currentTime = Date()
+                            // 開始時にすでに期限を過ぎていた場合はDue date gone!画面から始める
+                            if currentTime >= deadline {
+                                taskStatus = .overdue
+                                appState = .dueDateGone
+                            } else {
+                                taskStatus = .active
+                                appState = .oracleTimer
+                                startTimer()
+                            }
                         },
                         onDismiss: {
                             showOracleSheet = false
@@ -184,8 +231,14 @@ struct ContentView: View {
                     taskStatus: $taskStatus,
                     lateDuration: $lateDuration,
                     onSubmitAssignment: {
-                        stopTimer()
-                        appState = .success
+                        // 期限が過ぎている場合はDue date gone!画面に遷移
+                        if currentTime >= deadline {
+                            stopTimer()
+                            appState = .dueDateGone
+                        } else {
+                            stopTimer()
+                            appState = .success
+                        }
                     },
                     onCancel: {
                         stopTimer()
@@ -206,6 +259,10 @@ struct ContentView: View {
                 
             case .failure:
                 FailureView(
+                    showLateSubmission: taskStatus != .lateSubmitted,
+                    onLateSubmission: {
+                        appState = .dueDateGone
+                    },
                     onReturnHome: {
                         resetApp()
                     }
@@ -222,9 +279,58 @@ struct ContentView: View {
             case .thankYou:
                 ThankYouView(
                     onQuit: {
-                        appState = .home()
+                        resetApp()
                     }
                 )
+                
+            case .dueDateGone:
+                // Due date gone!表示画面（2秒表示後、カメラに遷移）
+                DueDateGoneView(onComplete: {
+                    appState = .photoCapture
+                })
+                
+            case .photoCapture:
+                // カメラ撮影画面
+                ZStack {
+                    Color(hex: "#001A33")
+                        .ignoresSafeArea()
+                    
+                    ImagePicker(selectedImage: $capturedImage)
+                }
+                .onChange(of: capturedImage) { newImage in
+                    if newImage != nil {
+                        appState = .photoDisplay
+                    }
+                }
+                
+            case .photoDisplay:
+                // 写真表示画面
+                ZStack {
+                    Color(hex: "#001A33")
+                        .ignoresSafeArea()
+                    
+                    if let image = capturedImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .ignoresSafeArea()
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                // タップでLate-submission画面に遷移
+                                lateDuration = currentTime.timeIntervalSince(deadline)
+                                taskStatus = .lateSubmitted
+                                appState = .failure
+                            }
+                    } else {
+                        VStack {
+                            Spacer()
+                            Text("No Image")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(.white)
+                            Spacer()
+                        }
+                    }
+                }
             }
         }
         .preferredColorScheme(.dark)
@@ -262,6 +368,11 @@ struct ContentView: View {
         cancelReason = ""
         showSetupSheet = false
         showOracleSheet = false
+        oracleTasks = [OracleTaskItem(taskName: "", taskDetail: "")]
+        capturedImage = nil
+        photoPickerItem = nil
+        showDueDateGone = false
+        showCamera = false
         stopTimer()
         appState = .home
     }
@@ -370,21 +481,18 @@ struct SetupView: View {
                 
                 Spacer()
                 
-                // タイマー開始ボタン
+                // タイマー開始ボタン（Task name空欄でも開始可能）
                 Button(action: {
-                    if !taskName.isEmpty {
-                        onEstablishDefense()
-                    }
+                    onEstablishDefense()
                 }) {
                     Text("Establish the Defense")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
-                        .background(taskName.isEmpty ? Color.gray : Color(hex: "#E00122"))
+                        .background(Color(hex: "#E00122"))
                         .cornerRadius(12)
                 }
-                .disabled(taskName.isEmpty)
                 .padding(.bottom, 30)
             }
             .padding(.horizontal, 30)
@@ -396,93 +504,114 @@ struct SetupView: View {
 
 /// AI Scholastic Oracle機能のセットアップ画面
 struct OracleSetupView: View {
-    /// タスク名のバインディング
-    @Binding var taskName: String
-    /// タスク詳細のバインディング
-    @Binding var taskDetail: String
-    /// デッドライン時間のバインディング
-    @Binding var deadline: Date
+    /// Oracle用のタスクリスト（最大3つ）
+    @Binding var oracleTasks: [OracleTaskItem]
     /// タイマー開始時のコールバック
     let onEstablishDefense: () -> Void
     /// 画面を閉じる時のコールバック
     let onDismiss: () -> Void
     
     var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 30) {
-                // タイトル
-                Text("AI Scholastic Oracle")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.top, 20)
-                
-                // タスク名入力フィールド
-                VStack(alignment: .leading, spacing: 15) {
-                    Text("Task Name")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                    
-                    TextField("Task Name, Enter", text: $taskName)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 18))
-                        .foregroundColor(.white)
-                        .padding(15)
-                        .background(Color(hex: "#002D54"))
-                        .cornerRadius(8)
-                }
-                
-                // タスク詳細入力フィールド（Oracleモード専用）
-                VStack(alignment: .leading, spacing: 15) {
-                    Text("Task Detail")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                    
-                    TextField("Enter Task Detail", text: $taskDetail)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 18))
-                        .foregroundColor(.white)
-                        .padding(15)
-                        .background(Color(hex: "#002D54"))
-                        .cornerRadius(8)
-                }
-                
-                // デッドライン日時選択（画面の3/4の高さ）
-                VStack(alignment: .leading, spacing: 15) {
-                    Text("Deadline")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                    
-                    DatePicker("", selection: $deadline, displayedComponents: [.date, .hourAndMinute])
-                        .datePickerStyle(.wheel)
-                        .labelsHidden()
-                        .tint(Color(hex: "#E00122"))
-                        .accentColor(Color(hex: "#E00122"))
-                        .frame(height: geometry.size.height * 0.75 - 280)
-                }
-                
-                Spacer()
-                
-                // タイマー開始ボタン
-                Button(action: {
-                    if !taskName.isEmpty {
-                        onEstablishDefense()
+        VStack(spacing: 0) {
+            // タイトル
+            Text("AI Scholastic Oracle")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.top, 20)
+                .padding(.bottom, 20)
+            
+            // スクロール可能なコンテンツ
+            ScrollView {
+                VStack(spacing: 30) {
+                    // タスクリスト
+                    ForEach(Array(oracleTasks.enumerated()), id: \.element.id) { index, task in
+                        VStack(alignment: .leading, spacing: 15) {
+                            // タスク番号
+                            Text("Task \(index + 1)")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(.white)
+                            
+                            // タスク名入力フィールド
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Task Name")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                                
+                                TextField("Task Name, Enter", text: Binding(
+                                    get: { task.taskName },
+                                    set: { oracleTasks[index].taskName = $0 }
+                                ))
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 16))
+                                .foregroundColor(.white)
+                                .padding(15)
+                                .background(Color(hex: "#002D54"))
+                                .cornerRadius(8)
+                            }
+                            
+                            // タスク詳細入力フィールド
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Task Detail")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                                
+                                TextField("Enter Task Detail", text: Binding(
+                                    get: { task.taskDetail },
+                                    set: { oracleTasks[index].taskDetail = $0 }
+                                ))
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 16))
+                                .foregroundColor(.white)
+                                .padding(15)
+                                .background(Color(hex: "#002D54"))
+                                .cornerRadius(8)
+                            }
+                            
+                            // +ボタン（最後のタスクの下に表示、最大3つまで）
+                            if index == oracleTasks.count - 1 && oracleTasks.count < 3 {
+                                Button(action: {
+                                    oracleTasks.append(OracleTaskItem(taskName: "", taskDetail: ""))
+                                }) {
+                                    HStack {
+                                        Spacer()
+                                        Image(systemName: "plus")
+                                            .font(.system(size: 20, weight: .semibold))
+                                            .foregroundColor(.white)
+                                            .frame(width: 50, height: 50)
+                                            .background(Color.white.opacity(0.2))
+                                            .clipShape(Circle())
+                                        Spacer()
+                                    }
+                                }
+                                .padding(.top, 10)
+                            }
+                        }
+                        .padding(.horizontal, 30)
                     }
+                }
+                .padding(.bottom, 100)
+            }
+            
+            // タイマー開始ボタン（画面下部に固定）
+            VStack {
+                Button(action: {
+                    onEstablishDefense()
                 }) {
                     Text("Establish the Defense")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
-                        .background(taskName.isEmpty ? Color.gray : Color(hex: "#E00122"))
+                        .background(Color(hex: "#E00122"))
                         .cornerRadius(12)
                 }
-                .disabled(taskName.isEmpty)
+                .padding(.horizontal, 30)
                 .padding(.bottom, 30)
             }
-            .padding(.horizontal, 30)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(hex: "#001A33"))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(hex: "#001A33"))
     }
 }
 
@@ -560,9 +689,9 @@ struct ActiveTimerView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 30) {
-                // キャンセルボタン
+                // キャンセルボタン（2秒長押しで発動）
                 HStack {
-                    Button(action: onCancel) {
+                    Button(action: {}) {
                         Image(systemName: "xmark")
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.white)
@@ -570,6 +699,12 @@ struct ActiveTimerView: View {
                             .background(Color(hex: "#002D54"))
                             .clipShape(Circle())
                     }
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 2.0)
+                            .onEnded { _ in
+                                onCancel()
+                            }
+                    )
                     Spacer()
                 }
                 .padding(.horizontal, 20)
@@ -718,6 +853,10 @@ struct SuccessView: View {
 
 /// 失敗画面（Social Liquidation画面）
 struct FailureView: View {
+    /// Late Submissionボタンを表示するかどうか
+    let showLateSubmission: Bool
+    /// Late Submissionボタンのアクション
+    let onLateSubmission: () -> Void
     /// ホームに戻る時のコールバック
     let onReturnHome: () -> Void
     
@@ -749,15 +888,31 @@ struct FailureView: View {
                 
                 Spacer()
                 
-                // ホームに戻るボタン
-                Button(action: onReturnHome) {
-                    Text("Return Home")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 60)
-                        .background(Color(hex: "#002D54"))
-                        .cornerRadius(12)
+                // ボタン群
+                VStack(spacing: 15) {
+                    // Late Submissionボタン（まだ提出していない場合のみ表示）
+                    if showLateSubmission {
+                        Button(action: onLateSubmission) {
+                            Text("Late Submission")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 60)
+                                .background(Color(hex: "#E00122"))
+                                .cornerRadius(12)
+                        }
+                    }
+                    
+                    // ホームに戻るボタン
+                    Button(action: onReturnHome) {
+                        Text("Return Home")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 60)
+                            .background(Color(hex: "#002D54"))
+                            .cornerRadius(12)
+                    }
                 }
                 .padding(.horizontal, 40)
                 .padding(.bottom, 40)
@@ -825,6 +980,9 @@ struct CancelReasonView: View {
 
 /// サンクユー画面（Thank you.画面）
 struct ThankYouView: View {
+    /// ホームに戻る時のコールバック
+    let onQuit: () -> Void
+    
     var body: some View {
         ZStack {
             Color(hex: "#001A33")
@@ -838,8 +996,8 @@ struct ThankYouView: View {
                     .font(.system(size: 48, weight: .bold))
                     .foregroundColor(.white)
                 
-                // サブタイトル
-                Botton(action: OnQuit)
+                // Quit.ボタン
+                Button(action: onQuit) {
                     Text("Quit.")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
@@ -848,8 +1006,75 @@ struct ThankYouView: View {
                         .background(Color(hex: "#002D54"))
                         .cornerRadius(12)
                 }
+                .padding(.horizontal, 40)
                 
                 Spacer()
+            }
+        }
+    }
+}
+
+/// カメラ撮影用のUIViewControllerRepresentable
+struct ImagePicker: UIViewControllerRepresentable {
+    @Binding var selectedImage: UIImage?
+    @Environment(\.presentationMode) var presentationMode
+    
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        picker.sourceType = .camera
+        picker.cameraDevice = .front // インカメラ
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: ImagePicker
+        
+        init(_ parent: ImagePicker) {
+            self.parent = parent
+        }
+        
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.selectedImage = image
+            }
+            parent.presentationMode.wrappedValue.dismiss()
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.presentationMode.wrappedValue.dismiss()
+        }
+    }
+}
+
+/// Due date gone!表示画面
+struct DueDateGoneView: View {
+    /// カメラ撮影後のコールバック
+    let onComplete: () -> Void
+    
+    var body: some View {
+        ZStack {
+            Color(hex: "#001A33")
+                .ignoresSafeArea()
+            
+            VStack {
+                Spacer()
+                Text("Due date gone!")
+                    .font(.system(size: 48, weight: .bold))
+                    .foregroundColor(Color(hex: "#E00122"))
+                Spacer()
+            }
+        }
+        .onAppear {
+            // 2秒後にカメラを起動
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                onComplete()
             }
         }
     }
