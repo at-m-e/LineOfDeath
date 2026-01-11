@@ -256,6 +256,7 @@ struct ContentView: View {
             case .failure:
                 FailureView(
                     showLateSubmission: taskStatus != .lateSubmitted,
+                    lateDuration: lateDuration,
                     onLateSubmission: {
                         appState = .dueDateGone
                     },
@@ -452,12 +453,12 @@ struct SetupView: View {
                 Button(action: {
                     onEstablishDefense()
                 }) {
-                    Text("Start Timer")
+                    Text("Set DEADLINE")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 55)
-                        .background(Color(hex: "#E00122"))
+                        .background(Color(hex: "#FFD700"))
                         .cornerRadius(12)
                 }
                 .padding(.bottom, 30)
@@ -510,7 +511,7 @@ struct OracleSetupView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white)
                     
-                    TextField("Enter task description", text: $taskDetail, axis: .vertical)
+                    TextField("A 400 words essay on Economics", text: $taskDetail, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: 18))
                         .foregroundColor(.white)
@@ -680,7 +681,7 @@ struct ActiveTimerView: View {
                                 .foregroundColor(.gray)
                             
                             Text(timeDifferenceString)
-                                .font(.system(size: 48, weight: .bold, design: .monospaced))
+                                .font(.system(size: 72, weight: .bold, design: .monospaced))
                                 .foregroundColor(taskStatus == .active ? .white : Color(hex: "#E00122"))
                         }
                     }
@@ -712,12 +713,12 @@ struct ActiveTimerView: View {
                         }
                     } else {
                         Button(action: onSubmitAssignment) {
-                            Text("Submit Assignment")
+                            Text("Submit")
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 60)
-                                .background(taskStatus == .lateSubmitted ? Color.gray : Color(hex: "#E00122"))
+                                .background(taskStatus == .lateSubmitted ? Color.gray : Color(hex: "#003660"))
                                 .cornerRadius(12)
                         }
                         .disabled(taskStatus == .lateSubmitted)
@@ -779,14 +780,37 @@ struct SuccessView: View {
     }
 }
 
-/// 失敗画面（Social Liquidation画面）
+/// 失敗画面（Deadline Exceeded画面）
 struct FailureView: View {
     /// Late Submissionボタンを表示するかどうか
     let showLateSubmission: Bool
+    /// 遅延時間（秒）
+    let lateDuration: TimeInterval
     /// Late Submissionボタンのアクション
     let onLateSubmission: () -> Void
     /// ホームに戻る時のコールバック
     let onReturnHome: () -> Void
+    
+    /// 遅延時間をフォーマットする
+    private func formatLateTime(_ duration: TimeInterval) -> String {
+        let totalSeconds = Int(duration)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        
+        var components: [String] = []
+        if hours > 0 {
+            components.append("\(hours)h")
+        }
+        if minutes > 0 {
+            components.append("\(minutes)min")
+        }
+        if seconds > 0 || components.isEmpty {
+            components.append("\(seconds)s")
+        }
+        
+        return components.joined(separator: " ")
+    }
     
     var body: some View {
         ZStack {
@@ -797,7 +821,7 @@ struct FailureView: View {
                 Spacer()
                 
                 // タイトル
-                Text("Social Liquidation")
+                Text("Deadline Exceeded")
                     .font(.system(size: 48, weight: .bold))
                     .foregroundColor(Color(hex: "#E00122"))
                     .multilineTextAlignment(.center)
@@ -807,20 +831,15 @@ struct FailureView: View {
                     .font(.system(size: 100))
                     .foregroundColor(Color(hex: "#E00122"))
                 
-                // 失敗メッセージ
-                Text("Deadline Exceeded")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-                
                 Spacer()
                 
                 // ボタン群
                 VStack(spacing: 15) {
-                    // Late Submissionボタン（まだ提出していない場合のみ表示）
+                    // Late SubmissionボタンまたはSubmitted状態のボタン
                     if showLateSubmission {
-                        Button(action: onLateSubmission) {
+                        Button(action: {
+                            onLateSubmission()
+                        }) {
                             Text("Late Submission")
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundColor(.white)
@@ -829,6 +848,18 @@ struct FailureView: View {
                                 .background(Color(hex: "#E00122"))
                                 .cornerRadius(12)
                         }
+                    } else {
+                        // Submitted状態のボタン表示
+                        Button(action: {}) {
+                            Text("Submitted - \(formatLateTime(lateDuration)) late")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 60)
+                                .background(Color.gray)
+                                .cornerRadius(12)
+                        }
+                        .disabled(true)
                     }
                     
                     // ホームに戻るボタン
