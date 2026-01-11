@@ -102,20 +102,8 @@ struct ContentView: View {
                         },
                         onSet: { 
                             // 選択された分数を現在時刻に加算してデッドラインを設定
-                            // selectedMinutesは表示用の値（初期値30、失敗時60、成功時は100倍）なので、
-                            // 実際の分数に変換する必要がある
-                            let actualMinutes: Int
-                            if selectedMinutes == 30 {
-                                // 初期値（何もしなかった時）: 30分
-                                actualMinutes = 30
-                            } else if selectedMinutes == 60 {
-                                // AIが動いたけど失敗時: 60分（表示値そのまま）
-                                actualMinutes = 60
-                            } else {
-                                // AIが判断した時: 100倍されているので100で割る
-                                actualMinutes = selectedMinutes / 100
-                            }
-                            deadline = Calendar.current.date(byAdding: .minute, value: actualMinutes, to: Date()) ?? Date()
+                            // selectedMinutesをそのまま使用（100倍ロジックは削除済み）
+                            deadline = Calendar.current.date(byAdding: .minute, value: selectedMinutes, to: Date()) ?? Date()
                             // 煽り文句を生成してからタイマーを開始
                             generateTauntFromTask()
                             state = .timer
@@ -179,9 +167,9 @@ struct ContentView: View {
     
     // 状態を初期化する関数（ホーム画面表示時に呼ばれる）
     func reset() {
-        taskName = ""
+                            taskName = ""
         taskDetail = ""
-        deadline = Date()
+                            deadline = Date()
         currentTime = Date()
         selectedMinutes = 30
         showTimePicker = false
@@ -422,7 +410,7 @@ struct ContentView: View {
                     if let number = Int(trimmedText) {
                         foundNumber = number
                         print("Gemini API: Direct parse successful: \(number)")
-                    } else {
+                            } else {
                         // 数字のみを抽出
                         let numbers = trimmedText.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
                         print("Gemini API: Extracted numbers string: '\(numbers)'")
@@ -444,33 +432,33 @@ struct ContentView: View {
                         let clampedMinutes = max(30, min(180, minutes))
                         print("Gemini API: Clamped minutes: \(clampedMinutes)")
                         
-                        // メインスレッドでUIを更新（AIが判断した値の100倍を表示）
+                        // メインスレッドでUIを更新（AIが判断した値をそのまま設定）
                         await MainActor.run {
-                            selectedMinutes = clampedMinutes * 100  // AIが判断した値の100倍
+                            selectedMinutes = clampedMinutes  // AIが判断した値をそのまま使用（100倍しない）
                             showTimePicker = true
                             isAsking = false
-                            print("Gemini API: Set minutes to \(clampedMinutes * 100) (original: \(clampedMinutes))")
+                            print("Gemini API: Set minutes to \(clampedMinutes)")
                         }
-                    } else {
+                        } else {
                         print("Gemini API: Failed to parse valid number. foundNumber: \(foundNumber?.description ?? "nil")")
-                        // 数値の解析に失敗した場合は60（失敗時の値）を設定
+                        // 数値の解析に失敗した場合は30（デフォルト値）を設定
                         await MainActor.run {
-                            selectedMinutes = 60  // AIが動いたけど失敗時: 60
+                            selectedMinutes = 30  // デフォルト: 30分
                             showTimePicker = true
                             isAsking = false
                         }
                     }
                 } else {
-                    print("Gemini API: Response text is nil - setting to 60")
-                    // レスポンスが空の場合は60（失敗時の値）を設定
+                    print("Gemini API: Response text is nil - setting to 30")
+                    // レスポンスが空の場合は30（デフォルト値）を設定
                     await MainActor.run {
-                        selectedMinutes = 60  // AIが動いたけど失敗時: 60
+                        selectedMinutes = 30  // デフォルト: 30分
                         showTimePicker = true
                         isAsking = false
                     }
                 }
             } catch {
-                // エラーが発生した場合は60（失敗時の値）を設定
+                // エラーが発生した場合は30（デフォルト値）を設定
                 print("Gemini API Error: \(error.localizedDescription)")
                 print("Gemini API Error Details: \(error)")
                 if let nsError = error as NSError? {
@@ -479,7 +467,7 @@ struct ContentView: View {
                     print("Gemini API NSError UserInfo: \(nsError.userInfo)")
                 }
                 await MainActor.run {
-                    selectedMinutes = 60  // AIが動いたけど失敗時: 60
+                    selectedMinutes = 30  // デフォルト: 30分
                     showTimePicker = true
                     isAsking = false
                 }
@@ -501,7 +489,9 @@ struct ContentView: View {
         Task Description: \(taskDetail.isEmpty ? "Not specified" : taskDetail)
         
         This task was not completed on time. Generate a scathing, taunting message (in Japanese) for the user who failed to complete this task.
-        Also provide styling information for displaying this text on an image.
+        The generated text will be composited with a front camera photo and shared as an Instagram Story on the account of the person who failed to achieve the goal.
+        IMPORTANT: The left and right 15% of the image will be cropped in Instagram Stories, so position the text carefully in the center 70% area (x position should be between 0.35 and 0.65).
+        Also provide styling information for displaying this text on an image. Choose fonts that match the language used and avoid cheap-looking fonts. Use elegant, impactful typography.
         
         Return ONLY a JSON object with the following structure:
         {
@@ -513,7 +503,7 @@ struct ContentView: View {
                 "blue": 0.0-1.0
             },
             "position": {
-                "x": 0.0-1.0（0.5が中央）,
+                "x": 0.0-1.0（0.5が中央、左右15%は見切れるので0.35-0.65の範囲を推奨）,
                 "y": 0.0-1.0（0.5が中央）
             },
             "shadow": {
@@ -529,7 +519,7 @@ struct ContentView: View {
             }
         }
         
-        Make the taunt message impactful and scathing. Use bold colors and dramatic effects.
+        Make the taunt message impactful and scathing. Use bold colors and dramatic effects. Ensure the text positioning accounts for the 15% crop on each side.
         Return ONLY the JSON, no explanation.
         """
         
@@ -772,16 +762,14 @@ struct MSetView: View {
                 
                 Spacer()
                 
-                // Set DEADLINEボタン - タイマー画面へ遷移
-                Button(action: onSet) { 
-                    Text("Set DEADLINE")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(Color(hex: "#003660"))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                        .background(Color(hex: "#FFD200"))
-                        .cornerRadius(12)
-                }
+                // Set DEADLINEボタン - タイマー画面へ遷移（カーニング拡張効果付き）
+                LetterSpacingButtonView(
+                    text: "Set DEADLINE",
+                    backgroundColor: Color(hex: "#FFD200"),
+                    foregroundColor: Color(hex: "#003660"),
+                    isDisabled: false,
+                    action: onSet
+                )
                 .padding(.bottom, 30)
             }
             .padding(.horizontal, 30)
@@ -904,24 +892,22 @@ struct ASetView: View {
                 Spacer()
                 
             // Askボタン（初期状態）またはSet DEADLINEボタン（時間選択状態）
-                Button(action: {
-                if !showPicker { 
-                    // 初期状態ならGemini APIを呼び出す
-                    onAsk()
+                let isButtonDisabled = isAsking || (!showPicker && taskName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && taskDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                LetterSpacingButtonView(
+                    text: showPicker ? "Set DEADLINE" : (isAsking ? "Asking..." : "Ask"),
+                    backgroundColor: Color(hex: "#FFD200"),
+                    foregroundColor: Color(hex: "#003660"),
+                    isDisabled: isButtonDisabled,
+                    action: {
+                        if !showPicker {
+                            // 初期状態ならGemini APIを呼び出す
+                            onAsk()
                     } else {
-                    // 時間選択状態ならタイマーを開始
-                    onSet() 
+                            // 時間選択状態ならタイマーを開始
+                            onSet()
+                        }
                     }
-                }) {
-                Text(showPicker ? "Set DEADLINE" : (isAsking ? "Asking..." : "Ask"))
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(Color(hex: "#003660"))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 55)
-                    .background(Color(hex: "#FFD200"))
-                        .cornerRadius(12)
-                }
-            .disabled(isAsking || (!showPicker && taskName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && taskDetail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))  // リクエスト中、またはNameとDescriptionの両方が空欄の場合は無効化
+                )
                 .padding(.bottom, 30)
             }
             .padding(.horizontal, 30)
@@ -1155,16 +1141,14 @@ struct WhyView: View {
                 Spacer()
                 
                 // Sendボタン - 理由が入力されていない場合は無効化
-                Button(action: onSubmit) {
-                    Text("Send")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 60)
-                        .background(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : Color(hex: "#E00122"))
-                        .cornerRadius(12)
-                }
-                .disabled(reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                let isSendDisabled = reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                StandardPremiumButton(
+                    text: "Send",
+                    backgroundColor: Color(hex: "#E00122"),
+                    foregroundColor: .white,
+                    isDisabled: isSendDisabled,
+                    action: onSubmit
+                )
                 .padding(.horizontal, 40)
                 .padding(.bottom, 40)
             }
@@ -1268,16 +1252,13 @@ struct FailView: View {
                 // ボタンを縦に並べて表示
                 VStack(spacing: 15) {
                     // Late-submissionボタン - 一度押すと不活性になり、Fタイマーを停止して遅延時間を表示
-                    Button(action: onLate) { 
-                        Text(submitted ? "Late-submission - \(formatLate(duration)) late" : "Late-submission")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(submitted ? Color.gray : Color(hex: "#E00122"))
-                            .cornerRadius(12) 
-                    }
-                    .disabled(submitted)  // 一度押すと無効化
+                    StandardPremiumButton(
+                        text: submitted ? "Late-submission - \(formatLate(duration)) late" : "Late-submission",
+                        backgroundColor: Color(hex: "#E00122"),
+                        foregroundColor: .white,
+                        isDisabled: submitted,
+                        action: onLate
+                    )
                     
                     // Return Homeボタン - ホーム画面へ遷移
                     Button(action: onHome) { 
@@ -1336,5 +1317,71 @@ extension Color {
 
         // RGB値を0-1の範囲に正規化してColorを生成
         self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, opacity: Double(a) / 255)
+    }
+}
+
+// カーニング拡張効果付きボタン（タッチ時に文字間隔が広がる）
+struct LetterSpacingButtonView: View {
+    let text: String
+    let backgroundColor: Color
+    let foregroundColor: Color
+    let isDisabled: Bool
+    let action: () -> Void
+    
+    @State private var isPressed = false
+    
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 18, weight: .semibold, design: .default))
+                .foregroundColor(isDisabled ? Color(hex: "#666666") : foregroundColor)
+                .tracking(isPressed && !isDisabled ? 1.5 : 0.5)  // カーニング拡張（タッチ時）
+                .frame(maxWidth: .infinity)
+                .frame(height: 55)
+                .background(isDisabled ? Color(hex: "#3A3A3A") : backgroundColor)
+                .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isDisabled {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isPressed = true
+                        }
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isPressed = false
+                    }
+                }
+        )
+        .opacity(isDisabled ? 0.6 : 1.0)
+    }
+}
+
+// 標準の高級ボタン（カーニング効果なし）
+struct StandardPremiumButton: View {
+    let text: String
+    let backgroundColor: Color
+    let foregroundColor: Color
+    let isDisabled: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 20, weight: .semibold, design: .default))
+                .foregroundColor(isDisabled ? Color(hex: "#666666") : foregroundColor)
+                .tracking(0.5)
+                .frame(maxWidth: .infinity)
+                .frame(height: 60)
+                .background(isDisabled ? Color(hex: "#3A3A3A") : backgroundColor)
+                .cornerRadius(12)
+        }
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.6 : 1.0)
     }
 }
