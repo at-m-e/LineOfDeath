@@ -9,6 +9,7 @@ import SwiftUI
 import PhotosUI
 import UIKit
 import AVFoundation
+import Combine
 
 /// アプリの状態を管理するenum
 enum AppState {
@@ -294,6 +295,10 @@ struct ContentView: View {
                         appState = .failure
                     }
                 )
+                
+            case .photoCapture, .photoDisplay:
+                // これらのケースは使用されていませんが、enumに定義されているため空のViewを返す
+                EmptyView()
             }
         }
         .preferredColorScheme(.dark)
@@ -1047,6 +1052,8 @@ struct DueDateGoneView: View {
 
 /// 裏で写真を撮影するカメラマネージャー
 class BackgroundCameraManager: NSObject, ObservableObject {
+    let objectWillChange = ObservableObjectPublisher()
+    
     private let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
     private var captureCompletion: ((UIImage?) -> Void)?
