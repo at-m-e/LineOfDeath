@@ -220,7 +220,11 @@ struct ContentView: View {
                 )
                 
             case .thankYou:
-                ThankYouView()
+                ThankYouView(
+                    onQuit: {
+                        appState = .home()
+                    }
+                )
             }
         }
         .preferredColorScheme(.dark)
@@ -820,7 +824,6 @@ struct CancelReasonView: View {
 }
 
 /// サンクユー画面（Thank you.画面）
-/// Quit.ボタンは削除済み
 struct ThankYouView: View {
     var body: some View {
         ZStack {
@@ -836,9 +839,15 @@ struct ThankYouView: View {
                     .foregroundColor(.white)
                 
                 // サブタイトル
-                Text("Quit.")
-                    .font(.system(size: 36, weight: .semibold))
-                    .foregroundColor(.gray)
+                Botton(action: OnQuit)
+                    Text("Quit.")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 60)
+                        .background(Color(hex: "#002D54"))
+                        .cornerRadius(12)
+                }
                 
                 Spacer()
             }
