@@ -33,7 +33,7 @@ enum AppState {
     case cancelConfirm
     /// サンクユー画面
     case thankYou
-    /// Due date gone!表示中
+    /// Due date gone!表示中→今や
     case dueDateGone
     /// カメラ撮影画面
     case photoCapture
@@ -951,7 +951,7 @@ struct FailureView: View {
                     if !hasSubmitted {
                         Button(action: {
                             hasSubmitted = true
-                            onLateSubmission()
+                            // 画面遷移は発生させない（表示のみ変更）
                         }) {
                             Text("Late Submission")
                                 .font(.system(size: 20, weight: .semibold))

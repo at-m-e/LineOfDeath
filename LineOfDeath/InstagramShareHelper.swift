@@ -36,9 +36,9 @@ struct InstagramShareHelper {
             return false
         }
         
-        // 画像をJPEG形式に変換
-        guard let imageData = image.jpegData(compressionQuality: 0.9) else {
-            print("Failed to convert image to JPEG")
+        // 画像をPNG形式に変換
+        guard let imageData = image.pngData() else {
+            print("Failed to convert image to PNG")
             showShareSheet(image: image)
             return false
         }
