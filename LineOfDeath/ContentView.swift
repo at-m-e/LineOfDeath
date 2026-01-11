@@ -8,6 +8,24 @@ import UIKit  // 画像処理（UIImage、UIFont、UIColorなど）を使用す�
 import AVFoundation  // カメラ機能を使用するため
 import GoogleGenerativeAI  // Gemini APIを使用するため
 
+// 煽り文句の書式情報を保持する構造体
+struct TauntStyle {
+    var text: String = "Default"  // テキスト内容
+    var fontSize: CGFloat = 288  // フォントサイズ
+    var colorRed: Double = 1.0  // 色（赤成分 0-1）
+    var colorGreen: Double = 0.17  // 色（緑成分 0-1）
+    var colorBlue: Double = 0.13  // 色（青成分 0-1）
+    var positionX: Double = 0.5  // 位置X（0-1、0.5が中央）
+    var positionY: Double = 0.5  // 位置Y（0-1、0.5が中央）
+    var hasShadow: Bool = false  // シャドーの有無
+    var shadowColorRed: Double = 0.0  // シャドー色（赤成分）
+    var shadowColorGreen: Double = 0.0  // シャドー色（緑成分）
+    var shadowColorBlue: Double = 0.0  // シャドー色（青成分）
+    var shadowOffsetX: CGFloat = 4  // シャドーオフセットX
+    var shadowOffsetY: CGFloat = 4  // シャドーオフセットY
+    var shadowBlur: CGFloat = 8  // シャドーブラー
+}
+
 // アプリの画面状態を定義するenum
 enum ScreenState {
     case home      // A: ホーム画面
@@ -47,6 +65,9 @@ struct ContentView: View {
     @State private var countdown = 3              // カウントダウン値（3,2,1）
     @State private var photoDelegate: PhotoDelegate?  // 写真撮影デリゲート（保持用）
     
+    // 煽り文句の書式情報（初期値は"Default"）
+    @State private var tauntStyle = TauntStyle()
+    
     var body: some View {
         ZStack {
             // 背景色を設定（深いネイビー）
@@ -62,7 +83,12 @@ struct ContentView: View {
             case .mSet:
                 // B1: マニュアルタイマー設定画面 - タスク名とデッドラインを設定
                 MSetView(taskName: $taskName, deadline: $deadline, 
-                        onSet: { state = .timer; startTimer() },  // Set DEADLINEボタンでタイマー開始
+                        onSet: { 
+                            // 煽り文句を生成してからタイマーを開始
+                            generateTauntFromTask()
+                            state = .timer
+                            startTimer()
+                        },
                         onDismiss: { state = .home })
                         
             case .aSet:
@@ -90,6 +116,8 @@ struct ContentView: View {
                                 actualMinutes = selectedMinutes / 100
                             }
                             deadline = Calendar.current.date(byAdding: .minute, value: actualMinutes, to: Date()) ?? Date()
+                            // 煽り文句を生成してからタイマーを開始
+                            generateTauntFromTask()
                             state = .timer
                             startTimer()  // タイマーを開始
                         }, 
@@ -151,9 +179,9 @@ struct ContentView: View {
     
     // 状態を初期化する関数（ホーム画面表示時に呼ばれる）
     func reset() {
-                            taskName = ""
+        taskName = ""
         taskDetail = ""
-                            deadline = Date()
+        deadline = Date()
         currentTime = Date()
         selectedMinutes = 30
         showTimePicker = false
@@ -162,6 +190,7 @@ struct ContentView: View {
         hasLateSubmitted = false
         lateDuration = 0
         fTimerStart = nil
+        tauntStyle = TauntStyle()  // 煽り文句を"Default"に戻す
         stopTimer()  // タイマーを停止
     }
     
@@ -265,24 +294,51 @@ struct ContentView: View {
         // ベース画像を描画
         baseImage.draw(in: CGRect(origin: .zero, size: size))
         
-        // テキスト1: "Default" - ピンク色、真ん中、大きい（4倍に拡大: 72 * 4 = 288）
-        let aoriText = "Default"
-        let aoriFont = UIFont.systemFont(ofSize: 288, weight: .bold)
-        let aoriColor = UIColor.systemPink  // ピンク色
+        // テキスト1: 煽り文句（Geminiで生成されたもの、または"Default"）
+        let aoriText = tauntStyle.text
+        let aoriFont = UIFont.systemFont(ofSize: tauntStyle.fontSize, weight: .bold)
+        let aoriColor = UIColor(
+            red: tauntStyle.colorRed,
+            green: tauntStyle.colorGreen,
+            blue: tauntStyle.colorBlue,
+            alpha: 1.0
+        )
+        
+        // シャドーを設定する場合はコンテキストに設定
+        if tauntStyle.hasShadow {
+            let shadowColor = UIColor(
+                red: tauntStyle.shadowColorRed,
+                green: tauntStyle.shadowColorGreen,
+                blue: tauntStyle.shadowColorBlue,
+                alpha: 1.0
+            ).cgColor
+            context.setShadow(
+                offset: CGSize(width: tauntStyle.shadowOffsetX, height: tauntStyle.shadowOffsetY),
+                blur: tauntStyle.shadowBlur,
+                color: shadowColor
+            )
+        }
+        
         let aoriAttributes: [NSAttributedString.Key: Any] = [
             .font: aoriFont,
             .foregroundColor: aoriColor
         ]
         let aoriAttributedString = NSAttributedString(string: aoriText, attributes: aoriAttributes)
         let aoriSize = aoriAttributedString.size()
+        
+        // 位置を計算（positionX, positionYは0-1の範囲、0.5が中央）
         let aoriRect = CGRect(
-            x: (size.width - aoriSize.width) / 2,  // 真ん中
-            y: (size.height - aoriSize.height) / 2,
+            x: size.width * CGFloat(tauntStyle.positionX) - aoriSize.width / 2,
+            y: size.height * CGFloat(tauntStyle.positionY) - aoriSize.height / 2,
             width: aoriSize.width,
             height: aoriSize.height
         )
+        
         // NSAttributedStringを使って描画
         aoriAttributedString.draw(in: aoriRect)
+        
+        // シャドーをリセット
+        context.setShadow(offset: .zero, blur: 0, color: nil)
         
         // テキスト2: "LINE of DEATH" - 灰色、半透明、右下、小さい（4倍に拡大: 24 * 4 = 96）
         let sukasiText = "LINE of DEATH"
@@ -427,6 +483,132 @@ struct ContentView: View {
                     showTimePicker = true
                     isAsking = false
                 }
+            }
+        }
+    }
+    
+    // Gemini APIを呼び出してタスクから煽り文句と書式を生成する関数
+    func generateTauntFromTask() {
+        // Gemini APIキー
+        let apiKey = "AIzaSyBo0a3Z_HKiQsEI8P90wWIntxjPHBcDkqo"
+        
+        // Geminiモデルを初期化
+        let model = GenerativeModel(name: "gemini-2.5-flash-lite", apiKey: apiKey)
+        
+        // プロンプトを作成（JSON形式で煽り文句と書式情報を要求）
+        let prompt = """
+        Task Name: \(taskName.isEmpty ? "Not specified" : taskName)
+        Task Description: \(taskDetail.isEmpty ? "Not specified" : taskDetail)
+        
+        This task was not completed on time. Generate a scathing, taunting message (in Japanese) for the user who failed to complete this task.
+        Also provide styling information for displaying this text on an image.
+        
+        Return ONLY a JSON object with the following structure:
+        {
+            "text": "煽り文句のテキスト（日本語）",
+            "fontSize": 数値（推奨範囲: 200-400）,
+            "color": {
+                "red": 0.0-1.0,
+                "green": 0.0-1.0,
+                "blue": 0.0-1.0
+            },
+            "position": {
+                "x": 0.0-1.0（0.5が中央）,
+                "y": 0.0-1.0（0.5が中央）
+            },
+            "shadow": {
+                "enabled": true/false,
+                "color": {
+                    "red": 0.0-1.0,
+                    "green": 0.0-1.0,
+                    "blue": 0.0-1.0
+                },
+                "offsetX": 数値,
+                "offsetY": 数値,
+                "blur": 数値
+            }
+        }
+        
+        Make the taunt message impactful and scathing. Use bold colors and dramatic effects.
+        Return ONLY the JSON, no explanation.
+        """
+        
+        // Gemini APIを呼び出す（非同期）
+        Task {
+            do {
+                print("Gemini Taunt API: Sending request...")
+                let response = try await model.generateContent(prompt)
+                print("Gemini Taunt API: Received response")
+                
+                if let text = response.text {
+                    print("Gemini Taunt API Response: '\(text)'")
+                    
+                    // JSONをパース
+                    let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // JSON部分のみを抽出（```json```で囲まれている可能性がある）
+                    let jsonText = trimmedText
+                        .replacingOccurrences(of: "```json", with: "")
+                        .replacingOccurrences(of: "```", with: "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    
+                    if let jsonData = jsonText.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                        
+                        // 書式情報を抽出
+                        var newStyle = TauntStyle()
+                        
+                        if let textValue = json["text"] as? String {
+                            newStyle.text = textValue
+                        }
+                        
+                        if let fontSize = json["fontSize"] as? Double {
+                            newStyle.fontSize = CGFloat(fontSize)
+                        }
+                        
+                        if let color = json["color"] as? [String: Double] {
+                            newStyle.colorRed = color["red"] ?? 1.0
+                            newStyle.colorGreen = color["green"] ?? 0.17
+                            newStyle.colorBlue = color["blue"] ?? 0.13
+                        }
+                        
+                        if let position = json["position"] as? [String: Double] {
+                            newStyle.positionX = position["x"] ?? 0.5
+                            newStyle.positionY = position["y"] ?? 0.5
+                        }
+                        
+                        if let shadow = json["shadow"] as? [String: Any] {
+                            newStyle.hasShadow = shadow["enabled"] as? Bool ?? false
+                            
+                            if let shadowColor = shadow["color"] as? [String: Double] {
+                                newStyle.shadowColorRed = shadowColor["red"] ?? 0.0
+                                newStyle.shadowColorGreen = shadowColor["green"] ?? 0.0
+                                newStyle.shadowColorBlue = shadowColor["blue"] ?? 0.0
+                            }
+                            
+                            if let offsetX = shadow["offsetX"] as? Double {
+                                newStyle.shadowOffsetX = CGFloat(offsetX)
+                            }
+                            if let offsetY = shadow["offsetY"] as? Double {
+                                newStyle.shadowOffsetY = CGFloat(offsetY)
+                            }
+                            if let blur = shadow["blur"] as? Double {
+                                newStyle.shadowBlur = CGFloat(blur)
+                            }
+                        }
+                        
+                        // メインスレッドでUIを更新
+                        await MainActor.run {
+                            tauntStyle = newStyle
+                            print("Gemini Taunt API: Updated taunt style - text: '\(newStyle.text)'")
+                        }
+                    } else {
+                        print("Gemini Taunt API: Failed to parse JSON")
+                    }
+                } else {
+                    print("Gemini Taunt API: Response text is nil")
+                }
+            } catch {
+                print("Gemini Taunt API Error: \(error.localizedDescription)")
             }
         }
     }
@@ -621,7 +803,7 @@ struct ASetView: View {
     let onDismiss: () -> Void            // キャンセル時のアクション
     
     var body: some View {
-        VStack(spacing: 30) {
+            VStack(spacing: 30) {
             // ×ボタン（左上）- ホーム画面に戻る
             HStack {
                 Button(action: onDismiss) {
@@ -637,11 +819,11 @@ struct ASetView: View {
             .padding(.horizontal, 20)
             .padding(.top, 20)
             
-            // タイトル
-            Text("AI Scheduler")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(.white)
-            
+                // タイトル
+                Text("AI Scheduler")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+                
             if !showPicker {
                 // 初期状態: タスク名と詳細の入力フィールドを表示
                     VStack(spacing: 30) {
