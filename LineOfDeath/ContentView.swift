@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UIKit  // 画像処理（UIImage、UIFont、UIColorなど）を使用するため
 import AVFoundation  // カメラ機能を使用するため
 import Photos  // カメラロールへの保存機能を使用するため
 
@@ -210,7 +211,9 @@ struct ContentView: View {
         // 写真撮影完了時のコールバックを定義
         let delegate = PhotoDelegate { img in
             if let img = img { 
-                savePhoto(img)  // 写真をカメラロールに保存
+                // テキストを合成してから保存
+                let composedImage = composeTextOnImage(baseImage: img)
+                savePhoto(composedImage)  // 合成された写真をカメラロールに保存
             }
             session.stopRunning()  // セッションを停止
             photoDelegate = nil  // デリゲートの参照をクリア
@@ -224,6 +227,65 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             output.capturePhoto(with: AVCapturePhotoSettings(), delegate: delegate)
         }
+    }
+    
+    // 画像にテキストを合成する関数
+    func composeTextOnImage(baseImage: UIImage) -> UIImage {
+        let size = baseImage.size
+        let scale = baseImage.scale
+        
+        // グラフィックスコンテキストを作成
+        UIGraphicsBeginImageContextWithOptions(size, false, scale)
+        defer { UIGraphicsEndImageContext() }
+        
+        guard let context = UIGraphicsGetCurrentContext() else {
+            return baseImage
+        }
+        
+        // ベース画像を描画
+        baseImage.draw(in: CGRect(origin: .zero, size: size))
+        
+        // テキスト1: "Default" - ピンク色、真ん中、大きい
+        let aoriText = "Default"
+        let aoriFont = UIFont.systemFont(ofSize: 72, weight: .bold)
+        let aoriColor = UIColor.systemPink  // ピンク色
+        let aoriAttributes: [NSAttributedString.Key: Any] = [
+            .font: aoriFont,
+            .foregroundColor: aoriColor
+        ]
+        let aoriSize = aoriText.size(withAttributes: aoriAttributes)
+        let aoriRect = CGRect(
+            x: (size.width - aoriSize.width) / 2,  // 真ん中
+            y: (size.height - aoriSize.height) / 2,
+            width: aoriSize.width,
+            height: aoriSize.height
+        )
+        aoriText.draw(in: aoriRect, withAttributes: aoriAttributes)
+        
+        // テキスト2: "LINE of DEATH" - 灰色、半透明、右下、小さい
+        let sukasiText = "LINE of DEATH"
+        let sukasiFont = UIFont.systemFont(ofSize: 24, weight: .medium)
+        let sukasiColor = UIColor.gray.withAlphaComponent(0.7)  // 灰色、半透明（alpha 0.7）
+        let sukasiAttributes: [NSAttributedString.Key: Any] = [
+            .font: sukasiFont,
+            .foregroundColor: sukasiColor
+        ]
+        let sukasiSize = sukasiText.size(withAttributes: sukasiAttributes)
+        let padding: CGFloat = 20
+        let sukasiRect = CGRect(
+            x: size.width - sukasiSize.width - padding,  // 右下
+            y: size.height - sukasiSize.height - padding,
+            width: sukasiSize.width,
+            height: sukasiSize.height
+        )
+        sukasiText.draw(in: sukasiRect, withAttributes: sukasiAttributes)
+        
+        // 合成された画像を取得
+        guard let composedImage = UIGraphicsGetImageFromCurrentImageContext() else {
+            return baseImage
+        }
+        
+        return composedImage
     }
     
     // 写真をカメラロールに保存する関数
