@@ -89,6 +89,8 @@ struct ContentView: View {
     @State private var showDueDateGone: Bool = false
     /// カメラ表示フラグ
     @State private var showCamera: Bool = false
+    /// キャンセル前にいたタイマー状態（.timerまたは.oracleTimer）
+    @State private var previousTimerState: AppState = .timer
     
     /// プライマリ背景色（Deep Navy）
     let primaryBackground = Color(hex: "#001A33")
@@ -154,7 +156,6 @@ struct ContentView: View {
                     )
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
-                    .interactiveDismissDisabled()
                 }
                 
             case .timer:
@@ -176,6 +177,7 @@ struct ContentView: View {
                     },
                     onCancel: {
                         stopTimer()
+                        previousTimerState = .timer
                         appState = .cancelReason
                     },
                     onLateSubmission: {
@@ -220,7 +222,6 @@ struct ContentView: View {
                     )
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
-                    .interactiveDismissDisabled()
                 }
                 
             case .oracleTimer:
@@ -242,6 +243,7 @@ struct ContentView: View {
                     },
                     onCancel: {
                         stopTimer()
+                        previousTimerState = .oracleTimer
                         appState = .cancelReason
                     },
                     onLateSubmission: {
@@ -273,6 +275,10 @@ struct ContentView: View {
                     cancelReason: $cancelReason,
                     onSubmit: {
                         appState = .thankYou
+                    },
+                    onDismiss: {
+                        appState = previousTimerState
+                        startTimer()
                     }
                 )
                 
@@ -390,7 +396,7 @@ struct HomeView: View {
             Spacer()
             
             // タイトル
-            Text("The Line of Death")
+            Text("Line of Death")
                 .font(.system(size: 48, weight: .bold, design: .default))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
@@ -401,7 +407,7 @@ struct HomeView: View {
             VStack(spacing: 20) {
                 // Define Your Fateボタン
                 Button(action: onDefineYourFate) {
-                    Text("Define Your Fate")
+                    Text("Manual Timer")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -412,7 +418,7 @@ struct HomeView: View {
                 
                 // AI Scholastic Oracleボタン
                 Button(action: onOracle) {
-                    Text("AI Scholastic Oracle")
+                    Text("AI Scheduler")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -445,7 +451,7 @@ struct SetupView: View {
         GeometryReader { geometry in
             VStack(spacing: 30) {
                 // タイトル
-                Text("Define Your Fate")
+                Text("Manual Timer")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.white)
                     .padding(.top, 20)
@@ -485,7 +491,7 @@ struct SetupView: View {
                 Button(action: {
                     onEstablishDefense()
                 }) {
-                    Text("Establish the Defense")
+                    Text("Start Timer")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -514,7 +520,7 @@ struct OracleSetupView: View {
     var body: some View {
         VStack(spacing: 0) {
             // タイトル
-            Text("AI Scholastic Oracle")
+            Text("AI Scheduler")
                 .font(.system(size: 28, weight: .bold))
                 .foregroundColor(.white)
                 .padding(.top, 20)
@@ -597,7 +603,7 @@ struct OracleSetupView: View {
                 Button(action: {
                     onEstablishDefense()
                 }) {
-                    Text("Establish the Defense")
+                    Text("Start Timer")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -927,6 +933,8 @@ struct CancelReasonView: View {
     @Binding var cancelReason: String
     /// 送信時のコールバック
     let onSubmit: () -> Void
+    /// タイマーに戻る時のコールバック
+    let onDismiss: () -> Void
     /// テキストフィールドのフォーカス状態
     @FocusState private var isTextFieldFocused: Bool
     
@@ -936,6 +944,21 @@ struct CancelReasonView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 40) {
+                // 左上の×ボタン
+                HStack {
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Color(hex: "#002D54"))
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+                
                 Spacer()
                 
                 // タイトル
@@ -959,7 +982,7 @@ struct CancelReasonView: View {
                 
                 // 送信ボタン
                 Button(action: onSubmit) {
-                    Text("Submit")
+                    Text("Send")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -1065,7 +1088,7 @@ struct DueDateGoneView: View {
             
             VStack {
                 Spacer()
-                Text("Due date gone!")
+                Text("Time is Up!")
                     .font(.system(size: 48, weight: .bold))
                     .foregroundColor(Color(hex: "#E00122"))
                 Spacer()
