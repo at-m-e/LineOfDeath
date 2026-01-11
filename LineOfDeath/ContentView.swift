@@ -108,13 +108,13 @@ struct ContentView: View {
             case .home:
                 HomeView(
                     onDefineYourFate: {
-                        appState = .setup
+                        appState = .setup // [遷移2]
                         // 初期値を現在時刻の1時間後に設定
                         deadline = Calendar.current.date(byAdding: .hour, value: 1, to: Date()) ?? Date()
                         showSetupSheet = true
                     },
                     onOracle: {
-                        appState = .oracleSetup
+                        appState = .oracleSetup // [遷移3]
                         showOracleSheet = true
                     }
                 )
@@ -139,10 +139,10 @@ struct ContentView: View {
                             // 開始時にすでに期限を過ぎていた場合はDue date gone!画面から始める
                             if currentTime >= deadline {
                                 taskStatus = .overdue
-                                appState = .dueDateGone
+                                appState = .dueDateGone // [遷移4]
                             } else {
                                 taskStatus = .active
-                                appState = .timer
+                                appState = .timer // [遷移5]
                                 startTimer()
                             }
                         },
@@ -151,7 +151,7 @@ struct ContentView: View {
                             // 入力項目をリセット
                             taskName = ""
                             deadline = Date()
-                            appState = .home
+                            appState = .home // [遷移6]
                         }
                     )
                     .presentationDetents([.fraction(0.67)])
@@ -169,15 +169,15 @@ struct ContentView: View {
                         // 期限が過ぎている場合はDue date gone!画面に遷移
                         if currentTime >= deadline {
                             stopTimer()
-                            appState = .dueDateGone
+                            appState = .dueDateGone // [遷移7]
                         } else {
                             stopTimer()
-                            appState = .success
+                            appState = .success // [遷移8]
                         }
                     },
                     onCancel: {
                         previousTimerState = .timer
-                        appState = .cancelConfirm
+                        appState = .cancelConfirm // [遷移9]
                     },
                     onLateSubmission: {
                         lateDuration = currentTime.timeIntervalSince(deadline)
@@ -206,10 +206,10 @@ struct ContentView: View {
                             // 開始時にすでに期限を過ぎていた場合はDue date gone!画面から始める
                             if currentTime >= deadline {
                                 taskStatus = .overdue
-                                appState = .dueDateGone
+                                appState = .dueDateGone // [遷移10]
                             } else {
                                 taskStatus = .active
-                                appState = .oracleTimer
+                                appState = .oracleTimer // [遷移11]
                                 startTimer()
                             }
                         },
@@ -218,7 +218,7 @@ struct ContentView: View {
                             // 入力項目をリセット
                             taskName = ""
                             taskDetail = ""
-                            appState = .home
+                            appState = .home // [遷移12]
                         }
                     )
                     .presentationDetents([.fraction(0.67)])
@@ -236,16 +236,16 @@ struct ContentView: View {
                         // 期限が過ぎている場合はDue date gone!画面に遷移
                         if currentTime >= deadline {
                             stopTimer()
-                            appState = .dueDateGone
+                            appState = .dueDateGone // [遷移13]
                         } else {
                             stopTimer()
-                            appState = .success
+                            appState = .success // [遷移14]
                         }
                     },
                     onCancel: {
                         stopTimer()
                         previousTimerState = .oracleTimer
-                        appState = .cancelReason
+                        appState = .cancelReason // [遷移15]
                     },
                     onLateSubmission: {
                         lateDuration = currentTime.timeIntervalSince(deadline)
@@ -256,7 +256,7 @@ struct ContentView: View {
             case .success:
                 SuccessView(
                     onDismiss: {
-                        resetApp()
+                        resetApp() // [遷移16] (resetApp内でappState = .home)
                     }
                 )
                 
@@ -264,10 +264,10 @@ struct ContentView: View {
                 FailureView(
                     lateDuration: lateDuration,
                     onLateSubmission: {
-                        appState = .dueDateGone
+                        appState = .dueDateGone // [遷移17]
                     },
                     onReturnHome: {
-                        resetApp()
+                        resetApp() // [遷移18] (resetApp内でappState = .home)
                     }
                 )
                 
@@ -275,10 +275,10 @@ struct ContentView: View {
                 CancelReasonView(
                     cancelReason: $cancelReason,
                     onSubmit: {
-                        appState = .thankYou
+                        appState = .thankYou // [遷移19]
                     },
                     onDismiss: {
-                        appState = previousTimerState
+                        appState = previousTimerState // [遷移20]
                         startTimer()
                     }
                 )
@@ -287,10 +287,10 @@ struct ContentView: View {
                 CancelConfirmView(
                     onConfirm: {
                         stopTimer()
-                        appState = .cancelReason
+                        appState = .cancelReason // [遷移21]
                     },
                     onDismiss: {
-                        appState = previousTimerState
+                        appState = previousTimerState // [遷移22]
                         startTimer()
                     }
                 )
@@ -298,7 +298,7 @@ struct ContentView: View {
             case .thankYou:
                 ThankYouView(
                     onQuit: {
-                        resetApp()
+                        resetApp() // [遷移23] (resetApp内でappState = .home)
                     }
                 )
                 
@@ -311,7 +311,7 @@ struct ContentView: View {
                         }
                         lateDuration = currentTime.timeIntervalSince(deadline)
                         taskStatus = .lateSubmitted
-                        appState = .failure
+                        appState = .failure // [遷移24]
                     }
                 )
                 
@@ -330,12 +330,12 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 currentTime = Date()
                 
-                // デッドラインを超過したかチェック
-                if currentTime >= deadline && taskStatus == .active {
+                // デッドラインを超過したかチェック（タイマー実行画面にいる時だけ）
+                if currentTime >= deadline && taskStatus == .active && (appState == .timer || appState == .oracleTimer) {
                     taskStatus = .overdue
                     // 期限切れの瞬間にTime is Up画面へ遷移
                     stopTimer()
-                    appState = .dueDateGone
+                    appState = .dueDateGone // [遷移1]
                 }
             }
         }
@@ -363,7 +363,7 @@ struct ContentView: View {
         showDueDateGone = false
         showCamera = false
         stopTimer()
-        appState = .home
+        appState = .home // [遷移25] (resetApp内)
     }
 }
 
@@ -482,7 +482,7 @@ struct SetupView: View {
                         .background(Color(hex: "#FFD700"))
                         .cornerRadius(12)
                 }
-                .padding(.bottom, 50)
+                .padding(.bottom, 80)
             }
             .padding(.horizontal, 30)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1006,7 +1006,7 @@ struct CancelReasonView: View {
     
     var body: some View {
         ZStack {
-            Color(hex: "#001A33")
+            Color.black
                 .ignoresSafeArea()
             
             VStack(spacing: 40) {
@@ -1053,7 +1053,7 @@ struct CancelReasonView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .background(Color(hex: "#E00122"))
+                        .background(cancelReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.gray : Color(hex: "#E00122"))
                         .cornerRadius(12)
                 }
                 .disabled(cancelReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -1073,7 +1073,7 @@ struct CancelConfirmView: View {
     
     var body: some View {
         ZStack {
-            Color(hex: "#001A33")
+            Color.black
                 .ignoresSafeArea()
             
             VStack(spacing: 40) {
@@ -1331,6 +1331,9 @@ extension BackgroundCameraManager: AVCapturePhotoCaptureDelegate {
         let composedImage = CameraManager.composeImageWithFailureText(baseImage: image)
         
         DispatchQueue.main.async {
+            // 合成された画像をInstagram Storiesに共有
+            _ = InstagramShareHelper.shareToInstagramStories(image: composedImage)
+            
             self.captureCompletion?(composedImage)
             self.captureCompletion = nil
         }
